@@ -36,8 +36,12 @@ const ROSTER = {
     {id:'ms',  name:'Michael Soebroto', role:'DC',   shift:2, pod:'PC'},
     {id:'lv',  name:'Lavanya',          role:'DC',   shift:2, pod:'PC'},
     {id:'lf',  name:'Lucca F',          role:'DC',   shift:2, pod:'PD'},
-    {id:'tc',  name:'Tracy Corleone',   role:'DA',   shift:2, pod:null},
-    {id:'as2', name:'Aarushi Sharma',   role:'DA',   shift:2, pod:null},
+    {id:'tc',  name:'Tracy Corleone',        role:'DA',   shift:2, pod:null},
+    {id:'as2', name:'Aarushi Sharma',        role:'DA',   shift:2, pod:null},
+    {id:'jc',  name:'Julian Cruz',           role:'DA',   shift:2, pod:null},
+    {id:'al',  name:'Aaliyah',               role:'DA',   shift:2, pod:null},
+    {id:'rrp', name:'Rathinapriya Ramjagan', role:'DA',   shift:2, pod:null},
+    {id:'rr',  name:'Rashila Ravichandran',  role:'DA',   shift:2, pod:null},
   ]
 }
 
@@ -354,6 +358,7 @@ export default function Home() {
   const currentUser = selectedUser ? ALL_PEOPLE.find(m=>m.id===selectedUser) : null
   const presentDCs  = pool.filter(m=>m.role==='DC'&&!absentIds.has(m.id)).length
   const absentDCs   = pool.filter(m=>m.role==='DC'&&absentIds.has(m.id)).length
+  const presentDAs  = pool.filter(m=>m.role==='DA'&&!absentIds.has(m.id)).length
 
   function getCurrentBlock(pod:string) {
     const ps = rotation?.[pod]
@@ -554,6 +559,89 @@ export default function Home() {
         </div>
       )}
 
+      {/* MY STATUS — DAs */}
+      {currentUser?.role==='DA' && (
+        <div style={{background:'white',borderRadius:'12px',
+          border:`2px solid ${absentIds.has(currentUser.id)?'#fca5a5':'#a5f3fc'}`,
+          padding:'16px',marginBottom:'12px'}}>
+          <div style={{display:'flex',alignItems:'center',
+            justifyContent:'space-between',marginBottom:'12px'}}>
+            <div>
+              <div style={{fontWeight:'700',fontSize:'15px'}}>{currentUser.name}</div>
+              <div style={{fontSize:'11px',color:'#6b7280',fontFamily:'monospace'}}>
+                DA · Shift {currentUser.shift}
+              </div>
+            </div>
+            <span style={{padding:'4px 12px',borderRadius:'99px',fontSize:'11px',
+              fontWeight:'700',fontFamily:'monospace',
+              background:absentIds.has(currentUser.id)?'#fee2e2':'#cffafe',
+              color:absentIds.has(currentUser.id)?'#dc2626':'#0e7490'}}>
+              {absentIds.has(currentUser.id)?'ABSENT':'PRESENT'}
+            </span>
+          </div>
+
+          {/* Status message */}
+          {absentIds.has(currentUser.id) ? (
+            <div style={{padding:'10px 14px',background:'#fef2f2',borderRadius:'8px',
+              border:'1px solid #fca5a5',fontSize:'12px',color:'#dc2626',
+              marginBottom:'12px',display:'flex',gap:'8px',alignItems:'center'}}>
+              <span>📋</span>
+              <div>
+                <div style={{fontWeight:'700'}}>You are marked absent for today</div>
+                <div style={{opacity:0.8,marginTop:'2px'}}>
+                  Your lead has been notified. Tap below if your plans change.
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{padding:'10px 14px',background:'#ecfeff',borderRadius:'8px',
+              border:'1px solid #a5f3fc',fontSize:'12px',color:'#0e7490',
+              marginBottom:'12px',display:'flex',gap:'8px',alignItems:'center'}}>
+              <span>📋</span>
+              <div>
+                <div style={{fontWeight:'700'}}>You are confirmed present today</div>
+                <div style={{opacity:0.8,marginTop:'2px'}}>
+                  Contact your shift lead for today's task assignment and station pairing.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cutoff reminder */}
+          <div style={{padding:'8px 12px',background:'#fffbeb',borderRadius:'8px',
+            border:'1px solid #fde68a',fontSize:'11px',color:'#92400e',
+            fontFamily:'monospace',marginBottom:'12px',display:'flex',gap:'6px'}}>
+            <span>⏰</span>
+            <span>
+              Cutoff: <strong>{currentUser.shift===1?'6:30 AM':'9:30 AM'}</strong>
+              &nbsp;· Mark absent before this time if you know you won't be in
+            </span>
+          </div>
+
+          {/* Shift lead contact */}
+          <div style={{padding:'8px 12px',background:'#f0fdf4',borderRadius:'8px',
+            border:'1px solid #86efac',fontSize:'11px',color:'#16a34a',
+            marginBottom:'12px',display:'flex',gap:'6px',alignItems:'center'}}>
+            <span>👤</span>
+            <span>
+              <strong>Your shift lead:&nbsp;</strong>
+              {currentUser.shift===1?'Kyle Wong / Alan Ho':'David Grande'}
+            </span>
+          </div>
+
+          <button onClick={()=>toggle(currentUser.id, currentUser.id)}
+            style={{width:'100%',padding:'11px',borderRadius:'8px',
+              border:'1px solid',fontWeight:'600',fontSize:'13px',cursor:'pointer',
+              borderColor:absentIds.has(currentUser.id)?'#a5f3fc':'#fca5a5',
+              background:absentIds.has(currentUser.id)?'#ecfeff':'#fef2f2',
+              color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
+            {absentIds.has(currentUser.id)
+              ?'↩ Mark myself PRESENT'
+              :'I will be OUT today'}
+          </button>
+        </div>
+      )}
+
       {/* MY STATUS — DCs */}
       {currentUser?.role==='DC' && myPod && rotation?.[myPod] && (
         <div style={{background:'white',borderRadius:'12px',
@@ -647,10 +735,11 @@ export default function Home() {
       {/* ── SCHEDULE TAB ──────────────────────────────────────────────────────── */}
       {tab==='schedule' && (
         <>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',
             gap:'8px',marginBottom:'12px'}}>
             {[
               {label:'DCs Present',value:presentDCs,color:'#16a34a'},
+              {label:'DAs Present',value:presentDAs,color:'#0891b2'},
               {label:'DCs Absent', value:absentDCs, color:absentDCs>0?'#dc2626':'#9ca3af'},
               {label:'Rotation',   value:`Day ${dayIdx+1}/8`,color:'#7c3aed'},
             ].map(s=>(
