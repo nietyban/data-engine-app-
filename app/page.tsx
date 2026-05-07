@@ -1,13 +1,18 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+export const dynamic = 'force-dynamic'
 import { createClient } from '@supabase/supabase-js'
 
 // ─── SUPABASE CLIENT ──────────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+// Lazy init so it doesn't crash during Next.js static pre-rendering
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key || !url.startsWith('http')) return null
+  return createClient(url, key)
+}
+const supabase = typeof window !== 'undefined' ? getSupabase() : null
 
 const ROSTER = {
   s1: [
@@ -92,6 +97,65 @@ const COLORS: Record<string,string[]> = {
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+// ─── ROBOT DECORATIONS ────────────────────────────────────────────────────────
+function RobotSmall({x,y,size=40,opacity=0.18,flip=false}: {x:string,y:string,size?:number,opacity?:number,flip?:boolean}) {
+  return (
+    <div style={{position:'absolute',left:x,top:y,opacity,pointerEvents:'none',
+      transform:flip?'scaleX(-1)':'none',userSelect:'none'}}>
+      <svg width={size} height={size*1.4} viewBox="0 0 40 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Head */}
+        <rect x="10" y="2" width="20" height="16" rx="4" fill="#1d4ed8" stroke="#3b82f6" strokeWidth="1.5"/>
+        {/* Antenna */}
+        <line x1="20" y1="2" x2="20" y2="-4" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="20" cy="-5" r="2" fill="#60a5fa"/>
+        {/* Eyes */}
+        <circle cx="15" cy="9" r="3" fill="#bfdbfe"/>
+        <circle cx="15" cy="9" r="1.5" fill="#1d4ed8"/>
+        <circle cx="25" cy="9" r="3" fill="#bfdbfe"/>
+        <circle cx="25" cy="9" r="1.5" fill="#1d4ed8"/>
+        {/* Mouth */}
+        <rect x="14" y="14" width="12" height="2" rx="1" fill="#60a5fa"/>
+        {/* Neck */}
+        <rect x="18" y="18" width="4" height="3" fill="#3b82f6"/>
+        {/* Body */}
+        <rect x="8" y="21" width="24" height="20" rx="4" fill="#2563eb" stroke="#3b82f6" strokeWidth="1.5"/>
+        {/* Chest panel */}
+        <rect x="13" y="25" width="14" height="8" rx="2" fill="#1d4ed8"/>
+        <circle cx="17" cy="29" r="2" fill="#60a5fa"/>
+        <circle cx="23" cy="29" r="2" fill="#22c55e"/>
+        {/* Arms */}
+        <rect x="1" y="22" width="7" height="14" rx="3" fill="#2563eb" stroke="#3b82f6" strokeWidth="1"/>
+        <rect x="32" y="22" width="7" height="14" rx="3" fill="#2563eb" stroke="#3b82f6" strokeWidth="1"/>
+        {/* Hands */}
+        <circle cx="4.5" cy="38" r="3" fill="#3b82f6"/>
+        <circle cx="35.5" cy="38" r="3" fill="#3b82f6"/>
+        {/* Legs */}
+        <rect x="12" y="41" width="7" height="13" rx="3" fill="#1d4ed8" stroke="#3b82f6" strokeWidth="1"/>
+        <rect x="21" y="41" width="7" height="13" rx="3" fill="#1d4ed8" stroke="#3b82f6" strokeWidth="1"/>
+        {/* Feet */}
+        <rect x="10" y="51" width="11" height="4" rx="2" fill="#3b82f6"/>
+        <rect x="19" y="51" width="11" height="4" rx="2" fill="#3b82f6"/>
+      </svg>
+    </div>
+  )
+}
+
+function RobotBg() {
+  return (
+    <div style={{position:'fixed',inset:0,overflow:'hidden',pointerEvents:'none',zIndex:0}}>
+      <RobotSmall x="2%" y="8%" size={70} opacity={0.10}/>
+      <RobotSmall x="88%" y="5%" size={55} opacity={0.09} flip/>
+      <RobotSmall x="5%" y="55%" size={50} opacity={0.07}/>
+      <RobotSmall x="91%" y="48%" size={65} opacity={0.08} flip/>
+      <RobotSmall x="45%" y="2%" size={42} opacity={0.07}/>
+      <RobotSmall x="20%" y="88%" size={48} opacity={0.06}/>
+      <RobotSmall x="75%" y="82%" size={52} opacity={0.07} flip/>
+      <RobotSmall x="60%" y="30%" size={35} opacity={0.05}/>
+    </div>
+  )
+}
+
 function getDayIndex() {
   const now = new Date()
   const start = new Date(now.getFullYear(), 0, 0)
@@ -151,6 +215,7 @@ function useRealtimeAttendance(userId: string|null) {
   useEffect(() => {
     async function load() {
       try {
+        if (!supabase) { setLoading(false); return }
         const { data, error } = await supabase
           .from('attendance')
           .select('staff_id, status')
@@ -173,6 +238,7 @@ function useRealtimeAttendance(userId: string|null) {
 
   // Real-time subscription — fires on ANY attendance change
   useEffect(() => {
+    if (!supabase) return
     const channel = supabase
       .channel(`attendance-${today}`)
       .on('postgres_changes', {
@@ -213,6 +279,7 @@ function useRealtimeAttendance(userId: string|null) {
     })
 
     try {
+      if (!supabase) return
       const { error } = await supabase
         .from('attendance')
         .upsert({
@@ -243,7 +310,8 @@ function useRealtimeAttendance(userId: string|null) {
     async function ensureRows() {
       try {
         // Insert present rows for all active staff (ignore conflicts)
-        const rows = ALL_PEOPLE
+        if (!supabase) return
+      const rows = ALL_PEOPLE
           .filter(p => p.id !== 'gr')
           .map(p => ({
             staff_id:   p.id,
@@ -317,7 +385,9 @@ export default function Home() {
   if (!loggedIn) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',
       minHeight:'100vh',flexDirection:'column',fontFamily:'system-ui',
-      background:'#f0f4ff',padding:'20px'}}>
+      background:"linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)",padding:'20px',position:'relative',
+      backgroundImage:"radial-gradient(circle at 20% 50%, #bfdbfe 0%, transparent 50%), radial-gradient(circle at 80% 20%, #93c5fd 0%, transparent 40%)"}}> 
+      <RobotBg/>
       <div style={{background:'white',padding:'32px',borderRadius:'16px',
         boxShadow:'0 4px 24px rgba(0,0,0,0.08)',width:'100%',maxWidth:'400px'}}>
         <div style={{textAlign:'center',marginBottom:'24px'}}>
@@ -385,8 +455,9 @@ export default function Home() {
 
   // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
   return (
-    <div style={{fontFamily:'system-ui',background:'#f9fafb',minHeight:'100vh',
+    <div style={{fontFamily:'system-ui',background:'linear-gradient(160deg, #dbeafe 0%, #bae6fd 40%, #dbeafe 100%)',minHeight:'100vh',position:'relative',
       padding:'16px',maxWidth:'960px',margin:'0 auto'}}>
+      <RobotBg/>
 
       {/* 6-MIN ALERT */}
       {globalAlert && myCurrentBlock?.alert?.nextStation && (
