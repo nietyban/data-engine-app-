@@ -41,7 +41,7 @@ const ROSTER = {
     {id:'jc',  name:'Julian Cruz',           role:'DA',   shift:2, pod:null},
     {id:'al',  name:'Aaliyah',               role:'DA',   shift:2, pod:null},
     {id:'rrp', name:'Rathinapriya Ramjagan', role:'DA',   shift:2, pod:null},
-    {id:'rr',  name:'Rashila Ravichandran',  role:'DA',   shift:2, pod:null},
+    {id:'rr',  name:'Rashila Ravichandran',  role:'LEAD', shift:2, pod:null},
   ]
 }
 
@@ -625,7 +625,7 @@ export default function Home() {
             <span>👤</span>
             <span>
               <strong>Your shift lead:&nbsp;</strong>
-              {currentUser.shift===1?'Kyle Wong / Alan Ho':'David Grande'}
+              {currentUser.shift===1?'Kyle Wong / Alan Ho':'David Grande · Rashila Ravichandran'}
             </span>
           </div>
 
