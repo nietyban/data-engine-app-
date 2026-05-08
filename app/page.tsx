@@ -1246,6 +1246,28 @@ export default function Home() {
                       </div>
                     </div>
                   )
+                  if (block.type==='monitoring') return (
+                    <div key={i} style={{padding:'10px 14px',borderRadius:'10px',
+                      background:'#eff6ff',border:'1.5px solid #3b82f6',
+                      display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+                      <span style={{fontSize:'20px'}}>&#128270;</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:'700',fontSize:'13px',color:'#1d4ed8'}}>
+                          {block.label} · Floor Monitoring
+                        </div>
+                        <div style={{fontSize:'11px',color:'#1d4ed8',fontFamily:'monospace',marginTop:'2px'}}>
+                          {block.timeLabel}
+                        </div>
+                        <div style={{fontSize:'10px',color:'#6b7280',marginTop:'2px'}}>
+                          Vacate your station · Stand by to monitor floor operations · Your partner runs solo
+                        </div>
+                      </div>
+                      <span style={{padding:'3px 10px',borderRadius:'99px',fontSize:'10px',
+                        fontWeight:'700',background:'#1d4ed8',color:'white',fontFamily:'monospace'}}>
+                        MONITORING
+                      </span>
+                    </div>
+                  )
                   const info = STATION_INFO[block.station]
                   if (!info) return null
                   const bAlert = getBlockAlert(block.startMin,block.durHrs,null)
@@ -1390,6 +1412,17 @@ export default function Home() {
                 During lunch windows, 1st shift DCs cross-train on 2nd shift stations.
               </div>
             )}
+            {/* Monitoring schedule banner */}
+            <div style={{padding:'8px 12px',background:'#eff6ff',borderRadius:'8px',
+              border:'1px solid #bfdbfe',fontSize:'11px',color:'#1d4ed8',marginBottom:'10px'}}>
+              <strong>&#128270; Lead monitoring schedule (every 90 min · 30 min each):</strong>
+              {shift===1 ? (
+                <span> Kyle: 8:30-9:00, 10:30-11:00, 1:30-2:00 · Alan: 8:45-9:15, 10:45-11:15, 1:45-2:15</span>
+              ) : (
+                <span> David: 11:30-12:00, 2:00-2:30, 3:30-4:00, 5:30-6:00</span>
+              )}
+              &nbsp;· Partner runs SOLO during these windows.
+            </div>
 
             {/* AUTO-ASSIGNMENT ALERTS */}
             {Object.entries(autoAssignments).map(([pod,assignments])=>(
@@ -1474,6 +1507,11 @@ export default function Home() {
                     ))}
                     {isSolo&&<span style={{marginLeft:'auto',padding:'3px 10px',borderRadius:'99px',
                       fontSize:'10px',fontWeight:'700',background:'#fef3c7',color:'#92400e'}}>SOLO</span>}
+                    {!isSolo&&isMonitoringSolo&&<span style={{marginLeft:'auto',padding:'3px 10px',
+                      borderRadius:'99px',fontSize:'10px',fontWeight:'700',
+                      background:'#eff6ff',color:'#1d4ed8'}}>
+                      SOLO · {leadInMon?.name.split(' ')[0]} monitoring
+                    </span>}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:`repeat(${blocks.length},1fr)`,overflow:'hidden'}}>
                     {blocks.map((b:any,bi:number)=>{
