@@ -817,10 +817,9 @@ export default function Home() {
               🔒 Account locked · Contact your shift lead to reset
             </div>
           )}
-        </div>
       </div>
-    )
-  }
+    </div>
+  )
 
   // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
   return (
