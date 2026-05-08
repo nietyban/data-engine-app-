@@ -1327,10 +1327,7 @@ export default function Home() {
       {/* TABS */}
       <div style={{display:'flex',gap:'4px',background:'#f3f4f6',padding:'4px',
         borderRadius:'8px',marginBottom:'12px'}}>
-        {(currentUser?.role==='LEAD'
-        ? ['schedule','roster','timeoff','rotation']
-        : ['schedule','roster','rotation'] as const
-      ).map((t:string)=>(
+        {(['schedule','roster',...(currentUser?.role==='LEAD'?['timeoff']:[] as string[]),'rotation']).map((t:string)=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{flex:1,padding:'7px',borderRadius:'6px',cursor:'pointer',
               fontSize:'11px',fontWeight:'600',textTransform:'uppercase',
