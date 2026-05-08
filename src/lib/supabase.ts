@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl  = 'https://dwtlaxhgflbtflakuevw.supabase.co'
+const supabaseAnon = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dGxheGhnZmxidGZsYWt1ZXZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTkxMDksImV4cCI6MjA5MzY3NTEwOX0.h3LzJAwVkPBGxYtE12bLXzHYwD1y-2gUpnpVzKk7qlM'
 
 export const supabase = createClient(supabaseUrl, supabaseAnon)
 
@@ -56,7 +56,7 @@ export async function markAttendance(
   const { error } = await supabase
     .from('attendance')
     .upsert(
-      { staff_id: staffId, shift_date: date, status, 
+      { staff_id: staffId, shift_date: date, status,
         marked_by: markedBy, marked_at: new Date().toISOString() },
       { onConflict: 'staff_id,shift_date' }
     )
