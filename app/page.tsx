@@ -108,8 +108,11 @@ const LUNCH_GROUPS_S1: Record<string,{window:string,note:string}> = {
 // No QA — start data collection at 10:00 AM
 // UMI stations = 1 person each (Person A on C1, Person B on C2 when pod assigned UMI)
 //
-// Block 1: 10:00-12:00  Block 2: 12:00-1:00  Lunch C: 1:00-2:00  Block 3: 2:00-4:00  Block 4: 4:00-6:00
-// Lunch staggered: Person A 1:00-1:30, Person B 1:30-2:00 within each pair
+// Block 1: 10:00-12:00
+// Lunch C1 (12:00-1:00): PA+PB — Person A first half, Person B second half
+// Lunch C2 (1:00-2:00):  PC+PD — Person A first half, Person B second half
+// Block 2: 12:00-2:00 (staggered around lunch per pod)
+// Block 3: 2:00-4:00  Block 4: 4:00-6:00
 
 const ROTATION_S2: Record<string,Record<string,[string,string,string,string]>> = {
   '0': { PA:['ymc7','ymc7','g1','uc1'],    PB:['g1','g1','ymc7','uc2'],     PC:['uc1','uc2','ymc7','g1'],    PD:['uc2','uc1','g1','ymc7']  },
@@ -356,6 +359,9 @@ export default function Home() {
   const [toMsg,         setToMsg]        = useState('')
 
   const {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff} = useRealtimeAttendance()
+  const [overrides, setOverrides] = useState<Record<string,string>>({}) // pod_blockIdx -> staffId override
+  const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
+  const [showReassign, setShowReassign] = useState<string|null>(null) // pod key being manually reassigned
 
   useEffect(()=>{ const t=setInterval(()=>setClock(getClockTime()),1000); return ()=>clearInterval(t) },[])
 
@@ -378,12 +384,16 @@ export default function Home() {
     const [b1,b2,cross,b4] = myStations
     const isS1 = currentUser.shift===1
     const lunchGroup = isS1 ? (myPod==='P1'||myPod==='P2'?'A':'B') : 'C'
+    // 2nd shift: PA+PB lunch 12-1, PC+PD lunch 1-2
+    const s2LunchGroup = (myPod==='PA'||myPod==='PB') ? 'C1' : 'C2'
     const lunchWindow = isS1
       ? (lunchGroup==='A' ? '11:00 AM – 12:00 PM' : '12:00 PM – 1:00 PM')
-      : '1:00 – 2:00 PM'
+      : (s2LunchGroup==='C1' ? '12:00 – 1:00 PM' : '1:00 – 2:00 PM')
     const lunchNote = isS1
       ? 'Staggered: Person A first half, Person B second half'
-      : 'Staggered: Person A 1:00-1:30, Person B 1:30-2:00'
+      : (s2LunchGroup==='C1'
+        ? 'Person A 12:00-12:30 · Person B 12:30-1:00'
+        : 'Person A 1:00-1:30 · Person B 1:30-2:00')
     const isCrossUMI = cross==='uc1'||cross==='uc2'
     const crossNote = isCrossUMI ? '(solo - cross-training)' : '(cross-train with 2nd shift station)'
 
@@ -394,10 +404,17 @@ export default function Home() {
       {type:'cross',label:'Cross-Train',station:cross,timeLabel:lunchGroup==='A'?'During 11AM-12PM':'During 12PM-1PM',startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:true,isSolo:true,note:crossNote},
       {type:'block',label:'Block 4',station:b4,timeLabel:'1:00 – 3:00 PM',startMin:13*60,durHrs:2,isCross:false,isSolo:false},
     ]
+    else if (s2LunchGroup==='C1') return [
+      {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
+      {type:'lunch',label:'Lunch C1',station:'',timeLabel:'12:00 – 1:00 PM',note:lunchNote,startMin:12*60,durHrs:1,isCross:false,isSolo:false},
+      {type:'block',label:'Block 2',station:b2,timeLabel:'1:00 – 2:00 PM (post-lunch)',startMin:13*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
+      {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
+      {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
+    ]
     else return [
       {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
-      {type:'block',label:'Block 2',station:b2,timeLabel:'12:00 – 1:00 PM',startMin:12*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
-      {type:'lunch',label:'Lunch C',station:'',timeLabel:'1:00 – 2:00 PM',note:lunchNote,startMin:13*60,durHrs:1,isCross:false,isSolo:false},
+      {type:'block',label:'Block 2',station:b2,timeLabel:'12:00 – 1:00 PM (pre-lunch)',startMin:12*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
+      {type:'lunch',label:'Lunch C2',station:'',timeLabel:'1:00 – 2:00 PM',note:lunchNote,startMin:13*60,durHrs:1,isCross:false,isSolo:false},
       {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
       {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
     ]
@@ -432,6 +449,88 @@ export default function Home() {
       return {pod,members,allPod,absentHere,personA,personB,isSolo,blocks}
     }).filter(Boolean)
   }
+
+  // ── AUTO-ASSIGN ENGINE ───────────────────────────────────────────────────────
+  // When a station pair has 0 present members, find best available DC to cover
+  function getAutoAssignments(): Record<string,{pod:string,station:string,assignee:typeof ALL_PEOPLE[0],blockLabel:string}[]> {
+    const nowMinutes = new Date().getHours()*60+new Date().getMinutes()
+    const result: Record<string,{pod:string,station:string,assignee:typeof ALL_PEOPLE[0],blockLabel:string}[]> = {}
+
+    const s1pods = ['P1','P2','P3','P4']
+    const s2pods = ['PA','PB','PC','PD']
+    const allPods = [...s1pods,...s2pods]
+
+    allPods.forEach(pod => {
+      const podShift = s1pods.includes(pod) ? 1 : 2
+      const podPool = ROSTER[`s${podShift}` as 's1'|'s2']
+      const rot = podShift===1 ? ROTATION_S1[dayStr] : ROTATION_S2[dayStr]
+      if (!rot?.[pod]) return
+
+      const podMembers = podPool.filter(m=>m.pod===pod)
+      const presentMembers = podMembers.filter(m=>!absentIds.has(m.id))
+      if (presentMembers.length > 0) return // station is covered
+
+      // Station is empty — find someone to cover
+      const stations = rot[pod] as string[]
+      const blocks = podShift===1
+        ? [{idx:0,startMin:7*60,endMin:9*60,label:'Block 1'},{idx:1,startMin:9*60,endMin:11*60,label:'Block 2'},{idx:3,startMin:13*60,endMin:15*60,label:'Block 4'}]
+        : [{idx:0,startMin:10*60,endMin:12*60,label:'Block 1'},{idx:1,startMin:12*60,endMin:14*60,label:'Block 2'},{idx:2,startMin:14*60,endMin:16*60,label:'Block 3'},{idx:3,startMin:16*60,endMin:18*60,label:'Block 4'}]
+
+      blocks.forEach(block => {
+        if (nowMinutes < block.startMin || nowMinutes >= block.endMin) return // block not active now
+        const stationId = stations[block.idx]
+        if (!stationId) return
+        const overrideKey = `${pod}_${block.idx}`
+        if (overrides[overrideKey]) return // lead already manually assigned
+
+        // Find best available person — same shift first, then opposite, then leads
+        const sameShiftAvailable = ROSTER[`s${podShift}` as 's1'|'s2']
+          .filter(m => m.role==='DC' && !absentIds.has(m.id) && m.pod!==pod
+            && nowMinutes >= (podShift===1?7*60:10*60)
+            && nowMinutes < (podShift===1?15*60:18*60))
+
+        const otherShift = podShift===1?2:1
+        const otherShiftStart = otherShift===1?7*60:10*60
+        const otherShiftEnd = otherShift===1?15*60:18*60
+        const otherShiftAvailable = ROSTER[`s${otherShift}` as 's1'|'s2']
+          .filter(m => m.role==='DC' && !absentIds.has(m.id)
+            && nowMinutes >= otherShiftStart && nowMinutes < otherShiftEnd)
+
+        const leadsAvailable = [...ROSTER.s1,...ROSTER.s2]
+          .filter(m => m.role==='LEAD' && !absentIds.has(m.id)
+            && nowMinutes >= (m.shift===1?7*60:10*60)
+            && nowMinutes < (m.shift===1?15*60:18*60))
+
+        const assignee = sameShiftAvailable[0] || otherShiftAvailable[0] || leadsAvailable[0]
+        if (!assignee) return
+
+        if (!result[pod]) result[pod]=[]
+        result[pod].push({pod,station:stationId,assignee,blockLabel:block.label})
+      })
+    })
+    return result
+  }
+
+  const autoAssignments = getAutoAssignments()
+
+  // Fire notifications when auto-assignments change
+  useEffect(()=>{
+    Object.entries(autoAssignments).forEach(([pod,assignments])=>{
+      assignments.forEach(a=>{
+        if (a.assignee.id === selectedUser) {
+          const notifId = `${pod}_${a.station}_${a.blockLabel}`
+          setNotifications(prev=>{
+            if (prev.find(n=>n.id===notifId)) return prev
+            return [...prev, {
+              id:notifId,
+              msg:`You have been assigned to cover ${STATION_INFO[a.station]?.label||a.station} (${a.blockLabel}) — ${pod} is short-staffed`,
+              time:Date.now()
+            }]
+          })
+        }
+      })
+    })
+  },[JSON.stringify(autoAssignments),selectedUser])
 
   // ── LOGIN VIEW ─────────────────────────────────────────────────────────────
   const loginView = (
@@ -668,6 +767,24 @@ export default function Home() {
                 fontSize:'11px',cursor:'pointer',background:'white'}}>sign out</button>
           </div>
         </div>
+
+        {/* ASSIGNMENT NOTIFICATIONS */}
+        {notifications.filter(n=>Date.now()-n.time<3600000).map(n=>(
+          <div key={n.id} style={{background:'#7c3aed',color:'white',padding:'10px 14px',
+            borderRadius:'10px',marginBottom:'8px',display:'flex',
+            alignItems:'center',gap:'10px',boxShadow:'0 2px 8px rgba(124,58,237,0.4)'}}>
+            <span style={{fontSize:'20px'}}>&#128276;</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:'700',fontSize:'13px'}}>Station Coverage Needed</div>
+              <div style={{fontSize:'12px',opacity:0.9,marginTop:'2px'}}>{n.msg}</div>
+            </div>
+            <button onClick={()=>setNotifications(prev=>prev.filter(p=>p.id!==n.id))}
+              style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',
+                borderRadius:'6px',padding:'4px 10px',cursor:'pointer',fontSize:'12px'}}>
+              Got it
+            </button>
+          </div>
+        ))}
 
         {/* DATE BAR */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -1226,6 +1343,45 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Lunch schedule banner */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+              {shift===1 ? (
+                <>
+                  <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
+                    border:'1px solid #fde68a',fontSize:'11px'}}>
+                    <div style={{fontWeight:'700',color:'#92400e',marginBottom:'2px'}}>
+                      Lunch A · 11:00 AM – 12:00 PM
+                    </div>
+                    <div style={{color:'#374151'}}>P1 + P2 staggered within pairs</div>
+                  </div>
+                  <div style={{padding:'8px 12px',background:'#f3e8ff',borderRadius:'8px',
+                    border:'1px solid #d8b4fe',fontSize:'11px'}}>
+                    <div style={{fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
+                      Lunch B · 12:00 PM – 1:00 PM
+                    </div>
+                    <div style={{color:'#374151'}}>P3 + P4 staggered within pairs</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
+                    border:'1px solid #fde68a',fontSize:'11px'}}>
+                    <div style={{fontWeight:'700',color:'#92400e',marginBottom:'2px'}}>
+                      Lunch C1 · 12:00 – 1:00 PM
+                    </div>
+                    <div style={{color:'#374151'}}>PA + PB staggered within pairs</div>
+                  </div>
+                  <div style={{padding:'8px 12px',background:'#f3e8ff',borderRadius:'8px',
+                    border:'1px solid #d8b4fe',fontSize:'11px'}}>
+                    <div style={{fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
+                      Lunch C2 · 1:00 – 2:00 PM
+                    </div>
+                    <div style={{color:'#374151'}}>PC + PD staggered within pairs</div>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Overlap note */}
             {shift===1&&(
               <div style={{padding:'8px 12px',background:'#f0fdf4',borderRadius:'8px',
@@ -1234,6 +1390,66 @@ export default function Home() {
                 During lunch windows, 1st shift DCs cross-train on 2nd shift stations.
               </div>
             )}
+
+            {/* AUTO-ASSIGNMENT ALERTS */}
+            {Object.entries(autoAssignments).map(([pod,assignments])=>(
+              assignments.map((a,ai)=>(
+                <div key={`${pod}_${ai}`} style={{padding:'10px 14px',background:'#fef3c7',
+                  borderRadius:'10px',border:'1px solid #fde68a',fontSize:'12px',
+                  color:'#92400e',marginBottom:'8px',display:'flex',
+                  alignItems:'center',gap:'10px'}}>
+                  <span style={{fontSize:'20px'}}>&#9888;</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:'700'}}>
+                      {pod} is empty — {STATION_INFO[a.station]?.label} needs coverage
+                    </div>
+                    <div style={{marginTop:'2px',opacity:0.9}}>
+                      Auto-assigned: <strong>{a.assignee.name}</strong> ({a.blockLabel})
+                      {a.assignee.pod ? ` from Pod ${a.assignee.pod}` : ''}
+                    </div>
+                  </div>
+                  {isLead && (
+                    <button onClick={()=>setShowReassign(`${pod}_${a.station}_${ai}`)}
+                      style={{padding:'5px 12px',borderRadius:'6px',fontSize:'11px',
+                        border:'1px solid #f59e0b',background:'white',
+                        color:'#92400e',cursor:'pointer',fontWeight:'600',flexShrink:0}}>
+                      Override
+                    </button>
+                  )}
+                  {showReassign===`${pod}_${a.station}_${ai}` && (
+                    <div style={{position:'absolute',right:'16px',background:'white',
+                      borderRadius:'10px',border:'1px solid #e5e7eb',padding:'12px',
+                      boxShadow:'0 4px 16px rgba(0,0,0,0.1)',zIndex:50,minWidth:'200px'}}>
+                      <div style={{fontSize:'12px',fontWeight:'600',marginBottom:'8px',color:'#374151'}}>
+                        Reassign {STATION_INFO[a.station]?.label}
+                      </div>
+                      {[...ROSTER.s1,...ROSTER.s2]
+                        .filter(m=>m.role==='DC'&&!absentIds.has(m.id)&&m.pod!==pod)
+                        .slice(0,8)
+                        .map(m=>(
+                          <div key={m.id}
+                            onClick={()=>{
+                              setOverrides(prev=>({...prev,[`${pod}_${a.station}`]:m.id}))
+                              setShowReassign(null)
+                            }}
+                            style={{padding:'6px 10px',borderRadius:'6px',cursor:'pointer',
+                              fontSize:'12px',color:'#374151',
+                              background:'#f9fafb',marginBottom:'4px',
+                              border:'1px solid #e5e7eb'}}>
+                            {m.name} · Pod {m.pod} · Shift {m.shift}
+                          </div>
+                        ))}
+                      <button onClick={()=>setShowReassign(null)}
+                        style={{width:'100%',padding:'6px',borderRadius:'6px',
+                          border:'1px solid #e5e7eb',background:'white',
+                          cursor:'pointer',fontSize:'11px',color:'#6b7280',marginTop:'4px'}}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            ))}
 
             {teamSchedule.map((row:any)=>{
               if (!row) return null
