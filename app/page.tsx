@@ -25,7 +25,8 @@ const ROSTER = {
     {id:'ks', name:'Keyshawn',        role:'DC',   shift:1, pod:'P3'},
     {id:'am', name:'Ashley Miller',   role:'DC',   shift:1, pod:'P3'},
     {id:'ht', name:'Huiying Tan',     role:'DA',   shift:1, pod:null},
-    {id:'sw', name:'Sang Woo',        role:'DA',   shift:1, pod:null},
+    {id:'sw',    name:'Sang Woo',        role:'DA',   shift:1, pod:null},
+    {id:'guest', name:'Guest / Observer', role:'GUEST',shift:1, pod:null},
   ],
   s2: [
     {id:'dg',  name:'David Grande',     role:'LEAD', shift:2, pod:'PD'},
@@ -40,8 +41,9 @@ const ROSTER = {
     {id:'as2', name:'Aarushi Sharma',        role:'DA',   shift:2, pod:null},
     {id:'jc',  name:'Julian Cruz',           role:'DA',   shift:2, pod:null},
     {id:'al',  name:'Aaliyah',               role:'DA',   shift:2, pod:null},
-    {id:'rrp', name:'Rathinapriya Ramjagan', role:'DA',   shift:2, pod:null},
-    {id:'rr',  name:'Rashila Ravichandran',  role:'LEAD', shift:2, pod:null},
+    {id:'rrp',   name:'Rathinapriya Ramjagan', role:'DA',   shift:2, pod:null},
+    {id:'rr',    name:'Rashila Ravichandran',  role:'LEAD', shift:2, pod:null},
+    {id:'guest2',name:'Guest / Observer',      role:'GUEST',shift:2, pod:null},
   ]
 }
 
@@ -164,6 +166,7 @@ function RobotBg() {
 const DEFAULT_PIN = '0000'
 
 function getPin(staffId: string): string {
+  if (staffId === 'guest' || staffId === 'guest2') return '1234'
   if (typeof window === 'undefined') return DEFAULT_PIN
   return localStorage.getItem(`pin_${staffId}`) || DEFAULT_PIN
 }
@@ -175,6 +178,10 @@ function isDefaultPin(staffId: string): boolean {
 function setPin(staffId: string, pin: string): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(`pin_${staffId}`, pin)
+}
+
+function isGuest(staffId: string | null): boolean {
+  return staffId === 'guest' || staffId === 'guest2'
 }
 
 function getDayIndex() {
@@ -616,12 +623,17 @@ export default function Home() {
               <div style={{fontSize:'13px',color:'#6b7280',marginTop:'4px'}}>
                 {ALL_PEOPLE.find(m=>m.id===selectedUser)?.name}
               </div>
-              {getPin(selectedUser||'') === DEFAULT_PIN && (
+              {isGuest(selectedUser) ? (
+                <div style={{marginTop:'8px',padding:'6px 12px',background:'#eff6ff',
+                  borderRadius:'8px',border:'1px solid #bfdbfe',fontSize:'11px',color:'#1d4ed8'}}>
+                  Observer PIN: <strong>1234</strong>
+                </div>
+              ) : getPin(selectedUser||'') === DEFAULT_PIN ? (
                 <div style={{marginTop:'8px',padding:'6px 12px',background:'#fffbeb',
                   borderRadius:'8px',border:'1px solid #fde68a',fontSize:'11px',color:'#92400e'}}>
                   Default PIN is 0000
                 </div>
-              )}
+              ) : null}
             </div>
             <div style={{display:'flex',justifyContent:'center',gap:'16px',marginBottom:'20px'}}>
               {[0,1,2,3].map(i=>(
@@ -911,6 +923,26 @@ export default function Home() {
         </div>
       )}
 
+      {/* GUEST VIEW */}
+      {currentUser?.role==='GUEST' && (
+        <div style={{background:'white',borderRadius:'12px',
+          border:'2px solid #bfdbfe',padding:'16px',marginBottom:'12px',
+          textAlign:'center'}}>
+          <div style={{fontSize:'32px',marginBottom:'8px'}}>👀</div>
+          <div style={{fontSize:'16px',fontWeight:'700',marginBottom:'4px'}}>
+            Observer Mode
+          </div>
+          <div style={{fontSize:'13px',color:'#6b7280',marginBottom:'12px'}}>
+            You are viewing the Data Engine schedule in read-only mode.
+            You cannot make changes to attendance or assignments.
+          </div>
+          <div style={{padding:'8px 14px',background:'#eff6ff',borderRadius:'8px',
+            border:'1px solid #bfdbfe',fontSize:'12px',color:'#1d4ed8'}}>
+            Browse the Schedule, Roster, and Rotation tabs below to explore the team layout.
+          </div>
+        </div>
+      )}
+
       {/* MY STATUS — DAs */}
       {currentUser?.role==='DA' && (
         <div style={{background:'white',borderRadius:'12px',
@@ -981,17 +1013,19 @@ export default function Home() {
             </span>
           </div>
 
-          <button onClick={()=>toggle(currentUser.id, currentUser.id)}
-            style={{width:'100%',padding:'11px',borderRadius:'8px',
-              border:'1px solid',fontWeight:'600',fontSize:'13px',cursor:'pointer',
-              borderColor:absentIds.has(currentUser.id)?'#a5f3fc':'#fca5a5',
-              background:absentIds.has(currentUser.id)?'#ecfeff':'#fef2f2',
-              color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
-            {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
-          </button>
+          {!isGuest(currentUser.id) && (
+            <button onClick={()=>toggle(currentUser.id, currentUser.id)}
+              style={{width:'100%',padding:'11px',borderRadius:'8px',
+                border:'1px solid',fontWeight:'600',fontSize:'13px',cursor:'pointer',
+                borderColor:absentIds.has(currentUser.id)?'#a5f3fc':'#fca5a5',
+                background:absentIds.has(currentUser.id)?'#ecfeff':'#fef2f2',
+                color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
+              {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
+            </button>
+          )}
 
           {/* Change PIN */}
-          <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+          {!isGuest(currentUser.id) && <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
             style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
               border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
               background:'white',color:'#6b7280'}}>
@@ -1051,12 +1085,12 @@ export default function Home() {
 
 
           {/* Schedule Time Off */}
-          <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+          {!isGuest(currentUser.id) && <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
             style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
               border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
               background:'white',color:'#6b7280'}}>
             📅 {showTimeOff ? 'Close' : 'Schedule time off'}
-          </button>
+          </button>}
 
           {showTimeOff && (
             <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
@@ -1224,16 +1258,18 @@ export default function Home() {
             </div>
           )}
 
-          <button onClick={()=>toggle(currentUser.id, currentUser.id)}
-            style={{width:'100%',padding:'10px',borderRadius:'8px',
-              border:'1px solid',fontWeight:'600',fontSize:'13px',cursor:'pointer',
-              borderColor:absentIds.has(currentUser.id)?'#86efac':'#fca5a5',
-              background:absentIds.has(currentUser.id)?'#f0fdf4':'#fef2f2',
-              color:absentIds.has(currentUser.id)?'#16a34a':'#dc2626'}}>
-            {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
-          </button>
+          {!isGuest(currentUser.id) && (
+            <button onClick={()=>toggle(currentUser.id, currentUser.id)}
+              style={{width:'100%',padding:'10px',borderRadius:'8px',
+                border:'1px solid',fontWeight:'600',fontSize:'13px',cursor:'pointer',
+                borderColor:absentIds.has(currentUser.id)?'#86efac':'#fca5a5',
+                background:absentIds.has(currentUser.id)?'#f0fdf4':'#fef2f2',
+                color:absentIds.has(currentUser.id)?'#16a34a':'#dc2626'}}>
+              {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
+            </button>
+          )}
 
-          <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+          {!isGuest(currentUser.id) && <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
             style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
               border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
               background:'white',color:'#6b7280'}}>
@@ -1294,12 +1330,12 @@ export default function Home() {
 
 
           {/* Schedule Time Off */}
-          <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+          {!isGuest(currentUser.id) && <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
             style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
               border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
               background:'white',color:'#6b7280'}}>
             📅 {showTimeOff ? 'Close' : 'Schedule time off'}
-          </button>
+          </button>}
 
           {showTimeOff && (
             <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
@@ -1695,7 +1731,7 @@ export default function Home() {
       )}
 
       {/* ── TIME OFF TAB — leads only ─────────────────────────────────────────── */}
-      {tab==='timeoff' && currentUser?.role==='LEAD' && (
+      {tab==='timeoff' && currentUser?.role==='LEAD' && !isGuest(currentUser?.id||'') && (
         <div>
           <div style={{background:'white',borderRadius:'12px',
             border:'1px solid #e5e7eb',padding:'16px',marginBottom:'12px'}}>
