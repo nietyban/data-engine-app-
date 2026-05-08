@@ -6,9 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 
 // ─── SUPABASE ────────────────────────────────────────────────────────────────
 function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key || !url.startsWith('http')) return null
+  const url = 'https://dwtlaxhgflbtflakuevw.supabase.co'
+  const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dGxheGhnZmxidGZsYWt1ZXZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTkxMDksImV4cCI6MjA5MzY3NTEwOX0.h3LzJAwVkPBGxYtE12bLXzHYwD1y-2gUpnpVzKk7qlM'
   return createClient(url, key)
 }
 
