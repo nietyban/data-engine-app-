@@ -92,16 +92,14 @@ const ROTATION_S1: Record<string,Record<string,[string,string,string,string]>> =
 }
 
 // Lunch schedule for 1st shift (staggered within pairs so station always manned)
-// Lunch A group (11:00-12:00): P1 PersonA 11:00-11:30, P1 PersonB 11:30-12:00
-//                              P2 PersonA 11:00-11:30, P2 PersonB 11:30-12:00
-// Lunch B group (12:00-1:00):  P3 PersonA 12:00-12:30, P3 PersonB 12:30-1:00
-//                              P4 PersonA 12:00-12:30, P4 PersonB 12:30-1:00
-const LUNCH_GROUPS_S1: Record<string,{window:string,note:string}> = {
-  P1: {window:'11:00 AM – 12:00 PM', note:'Person A 11:00-11:30 · Person B 11:30-12:00'},
-  P2: {window:'11:00 AM – 12:00 PM', note:'Person A 11:00-11:30 · Person B 11:30-12:00'},
-  P3: {window:'12:00 PM – 1:00 PM',  note:'Person A 12:00-12:30 · Person B 12:30-1:00'},
-  P4: {window:'12:00 PM – 1:00 PM',  note:'Person A 12:00-12:30 · Person B 12:30-1:00'},
-}
+// LUNCH RULE (both shifts):
+// Person A: lunch 11:00 AM - 12:00 PM (covers solo while B is at station)
+// Person B: lunch 12:00 PM - 1:00 PM  (covers solo while A is at station)
+// Every person gets 1 full hour. Every station always has 1 person.
+// Lunch windows — same for ALL pods, both shifts
+// Person A: 11:00 AM - 12:00 PM | Person B: 12:00 PM - 1:00 PM
+const LUNCH_NOTE_A = 'Your lunch · 11:00 AM – 12:00 PM · Person B covers solo'
+const LUNCH_NOTE_B = 'Your lunch · 12:00 PM – 1:00 PM · Person A covers solo'
 
 // ─── 2ND SHIFT SCHEDULE ───────────────────────────────────────────────────────
 // Stations: YMC7 G1 UMI-C1 UMI-C2 (always 2nd shift)
@@ -109,10 +107,8 @@ const LUNCH_GROUPS_S1: Record<string,{window:string,note:string}> = {
 // UMI stations = 1 person each (Person A on C1, Person B on C2 when pod assigned UMI)
 //
 // Block 1: 10:00-12:00
-// Lunch C1 (12:00-1:00): PA+PB — Person A first half, Person B second half
-// Lunch C2 (1:00-2:00):  PC+PD — Person A first half, Person B second half
-// Block 2: 12:00-2:00 (staggered around lunch per pod)
-// Block 3: 2:00-4:00  Block 4: 4:00-6:00
+// Lunch: Person A 11:00-12:00 | Person B 12:00-1:00 (same as 1st shift)
+// Block 2: 12:00-2:00 | Block 3: 2:00-4:00 | Block 4: 4:00-6:00
 
 const ROTATION_S2: Record<string,Record<string,[string,string,string,string]>> = {
   '0': { PA:['ymc7','ymc7','g1','uc1'],    PB:['g1','g1','ymc7','uc2'],     PC:['uc1','uc2','ymc7','g1'],    PD:['uc2','uc1','g1','ymc7']  },
@@ -437,17 +433,18 @@ export default function Home() {
     if (!myStations || !currentUser) return []
     const [b1,b2,cross,b4] = myStations
     const isS1 = currentUser.shift===1
-    const lunchGroup = isS1 ? (myPod==='P1'||myPod==='P2'?'A':'B') : 'C'
-    // 2nd shift: PA+PB lunch 12-1, PC+PD lunch 1-2
-    const s2LunchGroup = (myPod==='PA'||myPod==='PB') ? 'C1' : 'C2'
-    const lunchWindow = isS1
-      ? (lunchGroup==='A' ? '11:00 AM – 12:00 PM' : '12:00 PM – 1:00 PM')
-      : (s2LunchGroup==='C1' ? '12:00 – 1:00 PM' : '1:00 – 2:00 PM')
-    const lunchNote = isS1
-      ? 'Staggered: Person A first half, Person B second half'
-      : (s2LunchGroup==='C1'
-        ? 'Person A 12:00-12:30 · Person B 12:30-1:00'
-        : 'Person A 1:00-1:30 · Person B 1:30-2:00')
+    // Simple rule: Person A lunches 11-12, Person B lunches 12-1 (both shifts)
+    // If solo (partner absent or solo station) → default to Lunch B (12-1PM)
+    const podMembers = myPod ? (isS1 ? ROSTER.s1 : ROSTER.s2).filter(m=>m.pod===myPod) : []
+    const podPresent = podMembers.filter(m=>!absentIds.has(m.id))
+    const isSoloStation = podPresent.length <= 1
+    const isPersonA = !isSoloStation && podMembers[0]?.id === currentUser.id
+    // Solo person always gets Lunch B (12-1PM) so 11AM is covered
+    const lunchWindow = isPersonA ? '11:00 AM – 12:00 PM' : '12:00 PM – 1:00 PM'
+    const lunchNote = isSoloStation
+      ? 'Solo lunch · 12:00 PM – 1:00 PM · Lead will cover your station'
+      : isPersonA ? LUNCH_NOTE_A : LUNCH_NOTE_B
+    const lunchStartMin = isPersonA ? 11*60 : 12*60
     const isCrossUMI = cross==='uc1'||cross==='uc2'
     const crossNote = isCrossUMI ? '(solo - cross-training)' : '(cross-train with 2nd shift station)'
 
@@ -469,23 +466,18 @@ export default function Home() {
       const base = [
         {type:'block',label:'Block 1',station:b1,timeLabel:'7:00 – 9:00 AM',startMin:7*60,durHrs:2,isCross:false,isSolo:false},
         {type:'block',label:'Block 2',station:b2,timeLabel:'9:00 – 11:00 AM',startMin:9*60,durHrs:2,isCross:false,isSolo:false},
-        {type:'lunch',label:`Lunch ${lunchGroup}`,station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:false,isSolo:false},
-        {type:'cross',label:'Cross-Train',station:cross,timeLabel:lunchGroup==='A'?'During 11AM-12PM':'During 12PM-1PM',startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:true,isSolo:true,note:crossNote},
+        {type:'lunch',label:'Lunch',station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchStartMin,durHrs:1,isCross:false,isSolo:false},
+        {type:'cross',label:'Cross-Train',station:cross,timeLabel:`During ${isPersonA?'11AM-12PM':'12PM-1PM'}`,startMin:lunchStartMin,durHrs:1,isCross:true,isSolo:true,note:crossNote},
         {type:'block',label:'Block 4',station:b4,timeLabel:'1:00 – 3:00 PM',startMin:13*60,durHrs:2,isCross:false,isSolo:false},
       ]
       return [...base,...monBlocks].sort((a,b)=>a.startMin-b.startMin)
     }
     else {
-      const base = s2LunchGroup==='C1' ? [
+      // Person A: lunch 11-12, Person B: lunch 12-1 (same as 1st shift)
+      const base = [
         {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
-        {type:'lunch',label:'Lunch C1',station:'',timeLabel:'12:00 – 1:00 PM',note:lunchNote,startMin:12*60,durHrs:1,isCross:false,isSolo:false},
+        {type:'lunch',label:'Lunch',station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchStartMin,durHrs:1,isCross:false,isSolo:false},
         {type:'block',label:'Block 2',station:b2,timeLabel:'1:00 – 2:00 PM',startMin:13*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
-        {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
-        {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
-      ] : [
-        {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
-        {type:'block',label:'Block 2',station:b2,timeLabel:'12:00 – 1:00 PM',startMin:12*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
-        {type:'lunch',label:'Lunch C2',station:'',timeLabel:'1:00 – 2:00 PM',note:lunchNote,startMin:13*60,durHrs:1,isCross:false,isSolo:false},
         {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
         {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
       ]
@@ -1339,18 +1331,32 @@ export default function Home() {
                   </div>
                 )}
                 {myTimeline.map((block,i)=>{
-                  if (block.type==='lunch') return (
-                    <div key={i} style={{padding:'10px 14px',borderRadius:'10px',
-                      background:'#fffbeb',border:'1px dashed #fde68a',
-                      display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-                      <span style={{fontSize:'20px'}}>&#127829;</span>
-                      <div>
-                        <div style={{fontWeight:'600',fontSize:'13px'}}>{block.label}</div>
-                        <div style={{fontSize:'11px',color:'#92400e',fontFamily:'monospace'}}>{block.timeLabel}</div>
-                        <div style={{fontSize:'10px',color:'#9ca3af',marginTop:'2px'}}>{block.note}</div>
+                  if (block.type==='lunch') {
+                    const isSoloLunch = block.note?.includes('Solo lunch')
+                    return (
+                      <div key={i} style={{padding:'10px 14px',borderRadius:'10px',
+                        background:isSoloLunch?'#fef3c7':'#fffbeb',
+                        border:isSoloLunch?'1.5px solid #f59e0b':'1px dashed #fde68a',
+                        display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+                        <span style={{fontSize:'20px'}}>&#127829;</span>
+                        <div style={{flex:1}}>
+                          <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                            <span style={{fontWeight:'600',fontSize:'13px'}}>{block.label}</span>
+                            {isSoloLunch&&(
+                              <span style={{padding:'1px 7px',borderRadius:'4px',fontSize:'9px',
+                                fontWeight:'700',background:'#f59e0b',color:'white'}}>
+                                SOLO · Lead covers
+                              </span>
+                            )}
+                          </div>
+                          <div style={{fontSize:'11px',color:'#92400e',fontFamily:'monospace',marginTop:'2px'}}>
+                            {block.timeLabel}
+                          </div>
+                          <div style={{fontSize:'10px',color:'#9ca3af',marginTop:'2px'}}>{block.note}</div>
+                        </div>
                       </div>
-                    </div>
-                  )
+                    )
+                  }
                   if (block.type==='monitoring') {
                     const nowMin2 = new Date().getHours()*60+new Date().getMinutes()
                     const isNowMon = nowMin2 >= block.startMin && nowMin2 < (block.startMin+block.durHrs*60)
@@ -1534,43 +1540,25 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Lunch schedule banner */}
+            {/* Lunch schedule banner — same rule both shifts */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
-              {shift===1 ? (
-                <>
-                  <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
-                    border:'1px solid #fde68a',fontSize:'11px'}}>
-                    <div style={{fontWeight:'700',color:'#92400e',marginBottom:'2px'}}>
-                      Lunch A · 11:00 AM – 12:00 PM
-                    </div>
-                    <div style={{color:'#374151'}}>P1 + P2 staggered within pairs</div>
-                  </div>
-                  <div style={{padding:'8px 12px',background:'#f3e8ff',borderRadius:'8px',
-                    border:'1px solid #d8b4fe',fontSize:'11px'}}>
-                    <div style={{fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
-                      Lunch B · 12:00 PM – 1:00 PM
-                    </div>
-                    <div style={{color:'#374151'}}>P3 + P4 staggered within pairs</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
-                    border:'1px solid #fde68a',fontSize:'11px'}}>
-                    <div style={{fontWeight:'700',color:'#92400e',marginBottom:'2px'}}>
-                      Lunch C1 · 12:00 – 1:00 PM
-                    </div>
-                    <div style={{color:'#374151'}}>PA + PB staggered within pairs</div>
-                  </div>
-                  <div style={{padding:'8px 12px',background:'#f3e8ff',borderRadius:'8px',
-                    border:'1px solid #d8b4fe',fontSize:'11px'}}>
-                    <div style={{fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
-                      Lunch C2 · 1:00 – 2:00 PM
-                    </div>
-                    <div style={{color:'#374151'}}>PC + PD staggered within pairs</div>
-                  </div>
-                </>
-              )}
+              <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
+                border:'1px solid #fde68a',fontSize:'11px'}}>
+                <div style={{fontWeight:'700',color:'#92400e',marginBottom:'2px'}}>
+                  &#127829; Person A Lunch · 11:00 AM – 12:00 PM
+                </div>
+                <div style={{color:'#374151'}}>All pairs · both shifts · Person B covers solo</div>
+              </div>
+              <div style={{padding:'8px 12px',background:'#f3e8ff',borderRadius:'8px',
+                border:'1px solid #d8b4fe',fontSize:'11px'}}>
+                <div style={{fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
+                  &#127829; Person B Lunch · 12:00 PM – 1:00 PM
+                </div>
+                <div style={{color:'#374151'}}>All pairs · both shifts · Person A covers solo</div>
+                <div style={{color:'#7c3aed',fontSize:'10px',marginTop:'2px'}}>
+                  Solo DCs also lunch at 12-1 · Lead covers their station
+                </div>
+              </div>
             </div>
 
             {/* Overlap note */}
@@ -1681,8 +1669,18 @@ export default function Home() {
                         fontSize:'12px',background:'#fee2e2',color:'#dc2626',
                         border:'1px solid #fca5a5',textDecoration:'line-through',opacity:0.6}}>{m.name}</span>
                     ))}
-                    {isSolo&&<span style={{marginLeft:'auto',padding:'3px 10px',borderRadius:'99px',
-                      fontSize:'10px',fontWeight:'700',background:'#fef3c7',color:'#92400e'}}>SOLO</span>}
+                    {isSolo&&(
+                      <span style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:'6px'}}>
+                        <span style={{padding:'3px 10px',borderRadius:'99px',
+                          fontSize:'10px',fontWeight:'700',background:'#fef3c7',color:'#92400e'}}>
+                          SOLO
+                        </span>
+                        <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'9px',
+                          background:'#fee2e2',color:'#dc2626',fontWeight:'600'}}>
+                          Lead covers lunch 12-1
+                        </span>
+                      </span>
+                    )}
                     {!isSolo&&(()=>{
                       const nowMC=new Date().getHours()*60+new Date().getMinutes()
                       const lim=row.allPod.find((m:any)=>
