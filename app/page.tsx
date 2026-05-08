@@ -160,6 +160,23 @@ function RobotBg() {
   )
 }
 
+// ─── PIN HELPERS ─────────────────────────────────────────────────────────────
+const DEFAULT_PIN = '0000'
+
+function getPin(staffId: string): string {
+  if (typeof window === 'undefined') return DEFAULT_PIN
+  return localStorage.getItem(`pin_${staffId}`) || DEFAULT_PIN
+}
+
+function isDefaultPin(staffId: string): boolean {
+  return getPin(staffId) === DEFAULT_PIN
+}
+
+function setPin(staffId: string, pin: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(`pin_${staffId}`, pin)
+}
+
 function getDayIndex() {
   const now = new Date()
   const start = new Date(now.getFullYear(), 0, 0)
