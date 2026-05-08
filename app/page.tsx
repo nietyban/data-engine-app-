@@ -381,7 +381,7 @@ function useRealtimeAttendance() {
     if (!supabase) return
     try {
       await supabase.from('station_overrides').upsert(
-        {config_key:'disabled_stations', config_value:JSON.stringify([...next]), updated_at:new Date().toISOString()},
+        {config_key:'disabled_stations', config_value:JSON.stringify(Array.from(next)), updated_at:new Date().toISOString()},
         {onConflict:'config_key'}
       )
     } catch(e){ console.error('toggleStation error:',e) }
@@ -1488,7 +1488,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'8px'}}>
-                  {[...disabledStations].map(stId=>{
+                  {Array.from(disabledStations).map(stId=>{
                     const info=STATION_INFO[stId]
                     if (!info) return null
                     return (
