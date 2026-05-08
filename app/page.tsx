@@ -423,27 +423,46 @@ export default function Home() {
     const isCrossUMI = cross==='uc1'||cross==='uc2'
     const crossNote = isCrossUMI ? '(solo - cross-training)' : '(cross-train with 2nd shift station)'
 
-    if (isS1) return [
-      {type:'block',label:'Block 1',station:b1,timeLabel:'7:00 – 9:00 AM',startMin:7*60,durHrs:2,isCross:false,isSolo:false},
-      {type:'block',label:'Block 2',station:b2,timeLabel:'9:00 – 11:00 AM',startMin:9*60,durHrs:2,isCross:false,isSolo:false},
-      {type:'lunch',label:`Lunch ${lunchGroup}`,station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:false,isSolo:false},
-      {type:'cross',label:'Cross-Train',station:cross,timeLabel:lunchGroup==='A'?'During 11AM-12PM':'During 12PM-1PM',startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:true,isSolo:true,note:crossNote},
-      {type:'block',label:'Block 4',station:b4,timeLabel:'1:00 – 3:00 PM',startMin:13*60,durHrs:2,isCross:false,isSolo:false},
-    ]
-    else if (s2LunchGroup==='C1') return [
-      {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
-      {type:'lunch',label:'Lunch C1',station:'',timeLabel:'12:00 – 1:00 PM',note:lunchNote,startMin:12*60,durHrs:1,isCross:false,isSolo:false},
-      {type:'block',label:'Block 2',station:b2,timeLabel:'1:00 – 2:00 PM (post-lunch)',startMin:13*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
-      {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
-      {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
-    ]
-    else return [
-      {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
-      {type:'block',label:'Block 2',station:b2,timeLabel:'12:00 – 1:00 PM (pre-lunch)',startMin:12*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
-      {type:'lunch',label:'Lunch C2',station:'',timeLabel:'1:00 – 2:00 PM',note:lunchNote,startMin:13*60,durHrs:1,isCross:false,isSolo:false},
-      {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
-      {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
-    ]
+    // Build monitoring blocks for Kyle/Alan/David
+    const isMonLead = ['kw','ah','dg'].includes(currentUser.id)
+    const monBlocks = isMonLead ? getMonitoringWindows(currentUser.id).map(w=>({
+      type:'monitoring',
+      label:w.label,
+      station:'',
+      timeLabel:`${formatMin(w.startMin)} – ${formatMin(w.endMin)}`,
+      startMin:w.startMin,
+      durHrs:(w.endMin-w.startMin)/60,
+      isCross:false,
+      isSolo:false,
+      note:'Vacate station · Stand by on floor · Your partner runs solo'
+    })) : []
+
+    if (isS1) {
+      const base = [
+        {type:'block',label:'Block 1',station:b1,timeLabel:'7:00 – 9:00 AM',startMin:7*60,durHrs:2,isCross:false,isSolo:false},
+        {type:'block',label:'Block 2',station:b2,timeLabel:'9:00 – 11:00 AM',startMin:9*60,durHrs:2,isCross:false,isSolo:false},
+        {type:'lunch',label:`Lunch ${lunchGroup}`,station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:false,isSolo:false},
+        {type:'cross',label:'Cross-Train',station:cross,timeLabel:lunchGroup==='A'?'During 11AM-12PM':'During 12PM-1PM',startMin:lunchGroup==='A'?11*60:12*60,durHrs:1,isCross:true,isSolo:true,note:crossNote},
+        {type:'block',label:'Block 4',station:b4,timeLabel:'1:00 – 3:00 PM',startMin:13*60,durHrs:2,isCross:false,isSolo:false},
+      ]
+      return [...base,...monBlocks].sort((a,b)=>a.startMin-b.startMin)
+    }
+    else {
+      const base = s2LunchGroup==='C1' ? [
+        {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
+        {type:'lunch',label:'Lunch C1',station:'',timeLabel:'12:00 – 1:00 PM',note:lunchNote,startMin:12*60,durHrs:1,isCross:false,isSolo:false},
+        {type:'block',label:'Block 2',station:b2,timeLabel:'1:00 – 2:00 PM',startMin:13*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
+        {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
+        {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
+      ] : [
+        {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
+        {type:'block',label:'Block 2',station:b2,timeLabel:'12:00 – 1:00 PM',startMin:12*60,durHrs:1,isCross:false,isSolo:b2==='uc1'||b2==='uc2'},
+        {type:'lunch',label:'Lunch C2',station:'',timeLabel:'1:00 – 2:00 PM',note:lunchNote,startMin:13*60,durHrs:1,isCross:false,isSolo:false},
+        {type:'block',label:'Block 3',station:cross,timeLabel:'2:00 – 4:00 PM',startMin:14*60,durHrs:2,isCross:false,isSolo:cross==='uc1'||cross==='uc2'},
+        {type:'block',label:'Block 4',station:b4,timeLabel:'4:00 – 6:00 PM',startMin:16*60,durHrs:2,isCross:false,isSolo:b4==='uc1'||b4==='uc2'},
+      ]
+      return [...base,...monBlocks].sort((a,b)=>a.startMin-b.startMin)
+    }
   }
 
   const myTimeline = buildMyTimeline()
@@ -1248,7 +1267,7 @@ export default function Home() {
               </div>
             ) : (
               <div>
-                <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'10px',
+                <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'8px',
                   padding:'8px 12px',background:'white',borderRadius:'8px',
                   border:'1px solid #e5e7eb'}}>
                   <strong>Your stations today</strong> · Pod {myPod} · {currentUser?.shift===1?'1st Shift':'2nd Shift'} ·
@@ -1259,6 +1278,38 @@ export default function Home() {
                     </span>
                   )}
                 </div>
+                {/* Monitoring summary for leads */}
+                {['kw','ah','dg'].includes(currentUser?.id||'') && (
+                  <div style={{padding:'10px 14px',background:'#1d4ed8',borderRadius:'10px',
+                    marginBottom:'10px',border:'1px solid #1d4ed8'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}}>
+                      <span style={{fontSize:'16px'}}>&#128270;</span>
+                      <span style={{fontWeight:'700',fontSize:'13px',color:'white'}}>
+                        Your monitoring windows today
+                      </span>
+                    </div>
+                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                      {getMonitoringWindows(currentUser?.id||'').map((w,i)=>{
+                        const nowMin3=new Date().getHours()*60+new Date().getMinutes()
+                        const isActive=nowMin3>=w.startMin&&nowMin3<w.endMin
+                        const isPast=nowMin3>=w.endMin
+                        return (
+                          <span key={i} style={{padding:'4px 10px',borderRadius:'6px',
+                            fontSize:'11px',fontWeight:'700',fontFamily:'monospace',
+                            background:isActive?'white':isPast?'rgba(255,255,255,0.15)':'rgba(255,255,255,0.25)',
+                            color:isActive?'#1d4ed8':isPast?'rgba(255,255,255,0.5)':'white',
+                            border:isActive?'none':'1px solid rgba(255,255,255,0.2)',
+                            textDecoration:isPast?'line-through':'none'}}>
+                            {isActive?'NOW · ':''}{formatMin(w.startMin)}–{formatMin(w.endMin)}
+                          </span>
+                        )
+                      })}
+                    </div>
+                    <div style={{fontSize:'10px',color:'rgba(255,255,255,0.6)',marginTop:'6px'}}>
+                      Every 90 min · 30 min each · Vacate station during these windows
+                    </div>
+                  </div>
+                )}
                 {myTimeline.map((block,i)=>{
                   if (block.type==='lunch') return (
                     <div key={i} style={{padding:'10px 14px',borderRadius:'10px',
@@ -1272,28 +1323,51 @@ export default function Home() {
                       </div>
                     </div>
                   )
-                  if (block.type==='monitoring') return (
-                    <div key={i} style={{padding:'10px 14px',borderRadius:'10px',
-                      background:'#eff6ff',border:'1.5px solid #3b82f6',
-                      display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-                      <span style={{fontSize:'20px'}}>&#128270;</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:'700',fontSize:'13px',color:'#1d4ed8'}}>
-                          {block.label} · Floor Monitoring
+                  if (block.type==='monitoring') {
+                    const nowMin2 = new Date().getHours()*60+new Date().getMinutes()
+                    const isNowMon = nowMin2 >= block.startMin && nowMin2 < (block.startMin+block.durHrs*60)
+                    return (
+                      <div key={i} style={{padding:'14px 16px',borderRadius:'12px',
+                        background:isNowMon
+                          ?'linear-gradient(135deg,#1d4ed8,#3b82f6)'
+                          :'linear-gradient(135deg,#eff6ff,#dbeafe)',
+                        border:isNowMon?'2px solid #1d4ed8':'2px solid #93c5fd',
+                        display:'flex',alignItems:'center',gap:'12px',marginBottom:'8px',
+                        boxShadow:isNowMon?'0 4px 16px rgba(29,78,216,0.35)':'none',
+                        transition:'all 0.3s'}}>
+                        <span style={{fontSize:'26px'}}>&#128270;</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:'800',fontSize:'14px',
+                            color:isNowMon?'white':'#1d4ed8',letterSpacing:'-0.01em'}}>
+                            {block.label} &mdash; Floor Monitoring
+                          </div>
+                          <div style={{fontSize:'12px',fontFamily:'monospace',marginTop:'3px',
+                            fontWeight:'600',color:isNowMon?'rgba(255,255,255,0.85)':'#3b82f6'}}>
+                            {block.timeLabel}
+                          </div>
+                          <div style={{fontSize:'11px',marginTop:'4px',
+                            color:isNowMon?'rgba(255,255,255,0.75)':'#6b7280'}}>
+                            Vacate station · Stand by on floor · Partner runs solo
+                          </div>
                         </div>
-                        <div style={{fontSize:'11px',color:'#1d4ed8',fontFamily:'monospace',marginTop:'2px'}}>
-                          {block.timeLabel}
-                        </div>
-                        <div style={{fontSize:'10px',color:'#6b7280',marginTop:'2px'}}>
-                          Vacate your station · Stand by to monitor floor operations · Your partner runs solo
+                        <div style={{flexShrink:0,textAlign:'center'}}>
+                          <div style={{padding:'6px 14px',borderRadius:'8px',
+                            background:isNowMon?'rgba(255,255,255,0.2)':'#1d4ed8',
+                            border:isNowMon?'1px solid rgba(255,255,255,0.35)':'none'}}>
+                            <div style={{fontSize:'9px',textTransform:'uppercase',
+                              letterSpacing:'0.06em',marginBottom:'2px',
+                              color:isNowMon?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.8)'}}>
+                              {isNowMon?'ACTIVE NOW':'30 min'}
+                            </div>
+                            <div style={{fontSize:'18px',fontWeight:'800',
+                              fontFamily:'monospace',color:'white'}}>
+                              {isNowMon?'NOW':'&#128270;'}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <span style={{padding:'3px 10px',borderRadius:'99px',fontSize:'10px',
-                        fontWeight:'700',background:'#1d4ed8',color:'white',fontFamily:'monospace'}}>
-                        MONITORING
-                      </span>
-                    </div>
-                  )
+                    )
+                  }
                   const info = STATION_INFO[block.station]
                   if (!info) return null
                   const bAlert = getBlockAlert(block.startMin,block.durHrs,null)
