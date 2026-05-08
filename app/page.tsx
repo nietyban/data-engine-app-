@@ -578,7 +578,7 @@ export default function Home() {
         if (!assignee) return
 
         if (!result[pod]) result[pod]=[]
-        result[pod].push({pod,station:stationId,assignee,blockLabel:block.label,isDisabled:disabledStations.has(stationId)})
+        result[pod].push({pod,station:stationId,assignee,blockLabel:block.label})
       })
     })
     return result
