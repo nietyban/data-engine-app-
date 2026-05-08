@@ -540,74 +540,150 @@ export default function Home() {
   if (!loggedIn) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',
       minHeight:'100vh',flexDirection:'column',fontFamily:'system-ui',
-      background:"linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)",padding:'20px',position:'relative',
-      backgroundImage:"radial-gradient(circle at 20% 50%, #bfdbfe 0%, transparent 50%), radial-gradient(circle at 80% 20%, #93c5fd 0%, transparent 40%)"}}> 
+      background:'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)',
+      padding:'20px',position:'relative'}}>
       <RobotBg/>
       <div style={{background:'white',padding:'32px',borderRadius:'16px',
-        boxShadow:'0 4px 24px rgba(0,0,0,0.08)',width:'100%',maxWidth:'400px'}}>
-        <div style={{textAlign:'center',marginBottom:'24px'}}>
-          <div style={{display:'inline-flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
-            <div style={{width:'10px',height:'10px',borderRadius:'50%',
-              background:'#22c55e',boxShadow:'0 0 8px #22c55e'}}/>
-            <span style={{fontSize:'22px',fontWeight:'800'}}>Data Engine</span>
-          </div>
-          <div style={{fontSize:'14px',fontWeight:'600',color:'#374151'}}>{getCalendarDate()}</div>
-          <div style={{fontSize:'12px',color:'#9ca3af',fontFamily:'monospace',marginTop:'2px'}}>
-            {clock} · Rotation Day {dayIdx+1}/8
-          </div>
-        </div>
+        boxShadow:'0 4px 24px rgba(0,0,0,0.08)',width:'100%',maxWidth:'400px',
+        position:'relative',zIndex:1}}>
 
-        <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
-          textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your shift</div>
-        <div style={{display:'flex',gap:'8px',marginBottom:'16px'}}>
-          {[1,2].map(s=>(
-            <button key={s} onClick={()=>setShift(s as 1|2)}
-              style={{flex:1,padding:'10px',borderRadius:'10px',cursor:'pointer',
-                border:'2px solid',fontWeight:'700',fontSize:'13px',
-                borderColor:shift===s?'#3b82f6':'#e5e7eb',
-                background:shift===s?'#eff6ff':'white',
-                color:shift===s?'#1d4ed8':'#374151'}}>
-              {s===1?'1st Shift · 7AM–3PM':'2nd Shift · 10AM–6PM'}
+        {!pinStep ? (
+          <>
+            <div style={{textAlign:'center',marginBottom:'24px'}}>
+              <div style={{display:'inline-flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                <div style={{width:'10px',height:'10px',borderRadius:'50%',
+                  background:'#22c55e',boxShadow:'0 0 8px #22c55e'}}/>
+                <span style={{fontSize:'22px',fontWeight:'800'}}>Data Engine</span>
+              </div>
+              <div style={{fontSize:'14px',fontWeight:'600',color:'#374151'}}>{getCalendarDate()}</div>
+              <div style={{fontSize:'12px',color:'#9ca3af',fontFamily:'monospace',marginTop:'2px'}}>
+                {clock} · Rotation Day {dayIdx+1}/8
+              </div>
+            </div>
+            <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
+              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your shift</div>
+            <div style={{display:'flex',gap:'8px',marginBottom:'16px'}}>
+              {[1,2].map(s=>(
+                <button key={s} onClick={()=>setShift(s as 1|2)}
+                  style={{flex:1,padding:'10px',borderRadius:'10px',cursor:'pointer',
+                    border:'2px solid',fontWeight:'700',fontSize:'13px',
+                    borderColor:shift===s?'#3b82f6':'#e5e7eb',
+                    background:shift===s?'#eff6ff':'white',
+                    color:shift===s?'#1d4ed8':'#374151'}}>
+                  {s===1?'1st Shift · 7AM-3PM':'2nd Shift · 10AM-6PM'}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
+              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your name</div>
+            <select value={selectedUser||''} onChange={e=>setSelectedUser(e.target.value)}
+              style={{width:'100%',padding:'11px 12px',borderRadius:'10px',
+                border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'12px',
+                background:'white',cursor:'pointer'}}>
+              <option value=''>- select your name -</option>
+              {pool.map(p=>(
+                <option key={p.id} value={p.id}>
+                  {p.name} - {p.role}{p.pod?' - '+p.pod:''}
+                </option>
+              ))}
+            </select>
+            <div style={{padding:'10px 14px',background:'#fffbeb',borderRadius:'8px',
+              border:'1px solid #fde68a',fontSize:'12px',color:'#92400e',
+              marginBottom:'16px',display:'flex',gap:'8px'}}>
+              <span>Cutoff: {shift===1?'6:30 AM':'9:30 AM'} - mark absent before this time</span>
+            </div>
+            <button
+              disabled={!selectedUser}
+              onClick={()=>{ setPinStep(true); setPinInput(''); setPinError('') }}
+              style={{width:'100%',padding:'13px',borderRadius:'10px',
+                background:selectedUser?'#3b82f6':'#e5e7eb',
+                color:selectedUser?'white':'#9ca3af',
+                border:'none',fontSize:'15px',fontWeight:'700',
+                cursor:selectedUser?'pointer':'default'}}>
+              Continue
             </button>
-          ))}
-        </div>
-
-        <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
-          textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your name</div>
-        <select value={selectedUser||''} onChange={e=>setSelectedUser(e.target.value)}
-          style={{width:'100%',padding:'11px 12px',borderRadius:'10px',
-            border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'12px',
-            background:'white',cursor:'pointer'}}>
-          <option value=''>— select your name —</option>
-          {pool.map(p=>(
-            <option key={p.id} value={p.id}>
-              {p.name} · {p.role}{p.pod?' · '+p.pod:''}
-            </option>
-          ))}
-        </select>
-
-        <div style={{padding:'10px 14px',background:'#fffbeb',borderRadius:'8px',
-          border:'1px solid #fde68a',fontSize:'12px',color:'#92400e',
-          fontFamily:'monospace',marginBottom:'16px',display:'flex',gap:'8px'}}>
-          <span>⏰</span>
-          <div>
-            <div style={{fontWeight:'700'}}>Cutoff: {shift===1?'6:30 AM':'9:30 AM'}</div>
-            <div>Mark absent before this time if you can't make it</div>
-          </div>
-        </div>
-
-        <button onClick={()=>{ if(selectedUser){ setPinStep(true); setPinInput(''); setPinError('') } }}
-          disabled={!selectedUser}
-          style={{width:'100%',padding:'13px',borderRadius:'10px',
-            background:selectedUser?'#3b82f6':'#e5e7eb',
-            color:selectedUser?'white':'#9ca3af',
-            border:'none',fontSize:'15px',fontWeight:'700',
-            cursor:selectedUser?'pointer':'default'}}>
-          Continue →
-        </button>
+          </>
+        ) : (
+          <>
+            <button onClick={()=>{setPinStep(false);setPinInput('');setPinError('')}}
+              style={{background:'none',border:'none',cursor:'pointer',
+                fontSize:'13px',color:'#6b7280',marginBottom:'16px',padding:'0',display:'block'}}>
+              Back
+            </button>
+            <div style={{textAlign:'center',marginBottom:'20px'}}>
+              <div style={{fontSize:'32px',marginBottom:'8px'}}>&#128272;</div>
+              <div style={{fontSize:'18px',fontWeight:'700'}}>Enter your PIN</div>
+              <div style={{fontSize:'13px',color:'#6b7280',marginTop:'4px'}}>
+                {ALL_PEOPLE.find(m=>m.id===selectedUser)?.name}
+              </div>
+              {getPin(selectedUser||'') === DEFAULT_PIN && (
+                <div style={{marginTop:'8px',padding:'6px 12px',background:'#fffbeb',
+                  borderRadius:'8px',border:'1px solid #fde68a',fontSize:'11px',color:'#92400e'}}>
+                  Default PIN is 0000
+                </div>
+              )}
+            </div>
+            <div style={{display:'flex',justifyContent:'center',gap:'16px',marginBottom:'20px'}}>
+              {[0,1,2,3].map(i=>(
+                <div key={i} style={{width:'18px',height:'18px',borderRadius:'50%',
+                  background:pinInput.length>i?(pinError?'#ef4444':'#3b82f6'):'#e5e7eb'}}/>
+              ))}
+            </div>
+            {pinError && (
+              <div style={{padding:'8px 12px',background:'#fef2f2',borderRadius:'8px',
+                border:'1px solid #fca5a5',fontSize:'12px',color:'#dc2626',
+                textAlign:'center',marginBottom:'12px'}}>
+                {pinError}
+              </div>
+            )}
+            {!pinLocked ? (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
+                {['1','2','3','4','5','6','7','8','9','','0','<'].map((d,i)=>(
+                  <button key={i}
+                    onClick={()=>{
+                      if (!d) return
+                      if (d==='<') { setPinInput(p=>p.slice(0,-1)); return }
+                      if (pinLocked && Date.now()<(pinLockUntil||0)) return
+                      const next=(pinInput+d).slice(0,4)
+                      setPinInput(next)
+                      setPinError('')
+                      if (next.length===4) {
+                        const correct = getPin(selectedUser||'')
+                        if (next===correct) {
+                          setPinInput(''); setPinStep(false); setPinAttempts(0); setLoggedIn(true)
+                        } else {
+                          const att=pinAttempts+1
+                          setPinAttempts(att)
+                          if (att>=3) {
+                            setPinLocked(true); setPinLockUntil(Date.now()+300000)
+                            setPinError('Too many attempts. Locked 5 min.')
+                          } else {
+                            setPinError('Wrong PIN. '+(3-att)+' attempt(s) left.')
+                          }
+                          setTimeout(()=>setPinInput(''),600)
+                        }
+                      }
+                    }}
+                    style={{padding:'16px',borderRadius:'12px',fontSize:'20px',
+                      fontWeight:'600',cursor:d?'pointer':'default',
+                      border:d?'1px solid #e5e7eb':'none',
+                      background:d==='<'?'#fef2f2':d?'white':'transparent',
+                      color:d==='<'?'#dc2626':'#374151'}}>
+                    {d==='<'?'del':d}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div style={{textAlign:'center',padding:'20px',color:'#dc2626',fontSize:'13px'}}>
+                Locked - Contact your shift lead to reset
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
+
 
   // ── PIN ENTRY SCREEN ─────────────────────────────────────────────────────────
   if (!loggedIn && pinStep && selectedUser) {
