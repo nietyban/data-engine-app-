@@ -147,6 +147,10 @@ function isGuest(staffId: string|null): boolean {
 function isSuperAdmin(staffId: string|null): boolean {
   return staffId==='yban'||staffId==='yban2'
 }
+function canManageStations(staffId: string|null): boolean {
+  // Only leads + Yban can disable/enable stations
+  return ['kw','ah','dg','rr','yban','yban2'].includes(staffId||'')
+}
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function getDayIndex() {
@@ -261,6 +265,7 @@ function useRealtimeAttendance() {
   const [loading, setLoading] = useState(true)
   const [synced, setSynced] = useState(false)
   const [vacationMap, setVacationMap] = useState<Record<string,{start:string,end:string,id:string}[]>>({})
+  const [disabledStations, setDisabledStations] = useState<Set<string>>(new Set())
 
   // Load attendance from Supabase on mount — ALWAYS read DB first
   useEffect(()=>{
@@ -280,6 +285,15 @@ function useRealtimeAttendance() {
           absent.add('gr')
           setAbsentIds(absent)
           setSynced(true)
+        }
+        // Load disabled stations (persist until manually re-enabled)
+        const {data:dsData} = await supabase.from('station_overrides')
+          .select('config_value').eq('config_key','disabled_stations').single()
+        if (dsData?.config_value) {
+          try {
+            const ds = JSON.parse(dsData.config_value)
+            setDisabledStations(new Set(ds))
+          } catch(e){}
         }
         // Load vacation
         const {data:vacData} = await supabase.from('time_off').select('id,staff_id,start_date,end_date').gte('end_date',today)
@@ -359,7 +373,21 @@ function useRealtimeAttendance() {
     if (start<=today&&today<=end) setAbsentIds(prev=>{ const n=new Set(prev); n.delete(staffId); return n })
   },[today])
 
-  return {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff}
+  const toggleStation = useCallback(async(stationId: string)=>{
+    const next = new Set(disabledStations)
+    if (next.has(stationId)) next.delete(stationId)
+    else next.add(stationId)
+    setDisabledStations(next)
+    if (!supabase) return
+    try {
+      await supabase.from('station_overrides').upsert(
+        {config_key:'disabled_stations', config_value:JSON.stringify([...next]), updated_at:new Date().toISOString()},
+        {onConflict:'config_key'}
+      )
+    } catch(e){ console.error('toggleStation error:',e) }
+  },[disabledStations])
+
+  return {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff,disabledStations,toggleStation}
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -384,7 +412,7 @@ export default function Home() {
   const [toEnd,         setToEnd]        = useState('')
   const [toMsg,         setToMsg]        = useState('')
 
-  const {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff} = useRealtimeAttendance()
+  const {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff,disabledStations,toggleStation} = useRealtimeAttendance()
   const [overrides, setOverrides] = useState<Record<string,string>>({}) // pod_blockIdx -> staffId override
   const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
   const [showReassign, setShowReassign] = useState<string|null>(null) // pod key being manually reassigned
@@ -550,7 +578,7 @@ export default function Home() {
         if (!assignee) return
 
         if (!result[pod]) result[pod]=[]
-        result[pod].push({pod,station:stationId,assignee,blockLabel:block.label})
+        result[pod].push({pod,station:stationId,assignee,blockLabel:block.label,isDisabled:disabledStations.has(stationId)})
       })
     })
     return result
@@ -1449,6 +1477,47 @@ export default function Home() {
         {/* ── TEAM SCHEDULE TAB ────────────────────────────────────────────── */}
         {tab==='team' && (
           <div>
+            {/* Disabled stations banner */}
+            {disabledStations.size>0&&(
+              <div style={{padding:'10px 14px',background:'#fef2f2',borderRadius:'10px',
+                border:'1px solid #fca5a5',marginBottom:'12px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                  <span style={{fontSize:'16px'}}>&#128683;</span>
+                  <div style={{fontWeight:'700',fontSize:'13px',color:'#dc2626'}}>
+                    {disabledStations.size} station{disabledStations.size>1?'s':''} currently disabled
+                  </div>
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'8px'}}>
+                  {[...disabledStations].map(stId=>{
+                    const info=STATION_INFO[stId]
+                    if (!info) return null
+                    return (
+                      <div key={stId} style={{display:'flex',alignItems:'center',gap:'6px',
+                        padding:'4px 10px',borderRadius:'8px',background:'white',
+                        border:'1px solid #fca5a5'}}>
+                        <div style={{width:'8px',height:'8px',borderRadius:'50%',
+                          background:'#9ca3af'}}/>
+                        <span style={{fontSize:'12px',fontWeight:'600',
+                          color:'#6b7280',textDecoration:'line-through'}}>{info.label}</span>
+                        {canManageStations(selectedUser)&&(
+                          <button onClick={()=>toggleStation(stId)}
+                            style={{marginLeft:'4px',padding:'2px 8px',borderRadius:'4px',
+                              border:'1px solid #86efac',background:'#f0fdf4',
+                              color:'#16a34a',cursor:'pointer',fontSize:'10px',fontWeight:'700'}}>
+                            Re-enable
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{fontSize:'11px',color:'#dc2626',opacity:0.8}}>
+                  DCs from disabled stations have been redistributed to active stations.
+                  Only leads and Yban can re-enable stations.
+                </div>
+              </div>
+            )}
+
             {/* Station key */}
             <div style={{background:'white',borderRadius:'10px',border:'1px solid #e5e7eb',
               padding:'10px 14px',marginBottom:'12px'}}>
@@ -1590,6 +1659,13 @@ export default function Home() {
               return (
                 <div key={pod} style={{background:'white',borderRadius:'12px',
                   border:'1px solid #e5e7eb',marginBottom:'10px',overflow:'hidden'}}>
+                  {/* Check if any station in this pod is disabled */}
+                  {(()=>{
+                    const podStations = row.blocks.map((b:any)=>b.station)
+                    const hasDisabled = podStations.some((s:string)=>disabledStations.has(s))
+                    const allDisabled = podStations.every((s:string)=>disabledStations.has(s)||s==='')
+                    return null
+                  })()}
                   <div style={{padding:'10px 14px',background:'#f9fafb',
                     borderBottom:'1px solid #e5e7eb',display:'flex',
                     alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
@@ -1633,6 +1709,33 @@ export default function Home() {
                         <div key={bi} style={{
                           borderRight:bi<blocks.length-1?'1px solid #e5e7eb':'none',
                           background:isActive?`${info.dot}08`:'white'}}>
+                          {/* Disabled station overlay */}
+                          {disabledStations.has(b.station) ? (
+                            <div style={{padding:'12px 10px',background:'#f3f4f6',
+                              borderBottom:'1px solid #e5e7eb',opacity:0.7}}>
+                              <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'4px'}}>
+                                <div style={{width:'8px',height:'8px',borderRadius:'50%',
+                                  background:'#9ca3af'}}/>
+                                <span style={{fontSize:'12px',fontWeight:'800',
+                                  textDecoration:'line-through',color:'#9ca3af'}}>{info.label}</span>
+                                <span style={{fontSize:'8px',fontWeight:'700',
+                                  background:'#fee2e2',color:'#dc2626',
+                                  padding:'1px 6px',borderRadius:'3px'}}>DISABLED</span>
+                              </div>
+                              <div style={{fontSize:'9px',color:'#9ca3af',marginBottom:'6px'}}>
+                                Station removed from schedule by research leadership
+                              </div>
+                              {canManageStations(selectedUser)&&(
+                                <button onClick={()=>toggleStation(b.station)}
+                                  style={{width:'100%',padding:'4px',borderRadius:'6px',
+                                    border:'1px solid #86efac',background:'#f0fdf4',
+                                    color:'#16a34a',cursor:'pointer',fontSize:'9px',
+                                    fontWeight:'700'}}>
+                                  Re-enable Station
+                                </button>
+                              )}
+                            </div>
+                          ) : (
                           <div style={{padding:'8px 10px',
                             background:isActive?`${info.dot}18`:'#fafafa',
                             borderBottom:'1px solid #f3f4f6'}}>
@@ -1653,7 +1756,17 @@ export default function Home() {
                             {isActive&&<div style={{fontSize:'8px',background:'#dcfce7',color:'#16a34a',
                               padding:'1px 4px',borderRadius:'3px',fontWeight:'700',
                               display:'inline-block',marginTop:'2px'}}>ACTIVE</div>}
+                            {canManageStations(selectedUser)&&(
+                              <button onClick={()=>toggleStation(b.station)}
+                                style={{marginTop:'4px',width:'100%',padding:'3px',
+                                  borderRadius:'4px',border:'1px solid #fca5a5',
+                                  background:'#fef2f2',color:'#dc2626',cursor:'pointer',
+                                  fontSize:'8px',fontWeight:'700'}}>
+                                Disable Station
+                              </button>
+                            )}
                           </div>
+                          )}
                           <div style={{padding:'4px 8px'}}>
                             {sessions.slice(0,3).map((s:any,si:number)=>{
                               const isCur=si===activeIdx&&isActive
