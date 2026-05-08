@@ -11,7 +11,6 @@ function getSupabase() {
   if (!url || !key || !url.startsWith('http')) return null
   return createClient(url, key)
 }
-const supabase = typeof window !== 'undefined' ? getSupabase() : null
 
 // ─── ROSTER ──────────────────────────────────────────────────────────────────
 const ROSTER = {
@@ -63,23 +62,6 @@ const STATION_INFO: Record<string,{label:string,task:string,dot:string,shift:'s1
 }
 
 // ─── 1ST SHIFT SCHEDULE ───────────────────────────────────────────────────────
-// Stations: YMC1 YMC2 YMC3 YMC4 (always 1st shift)
-// Cross-training: during 11AM-1PM overlap, some DCs rotate to YMC7/G1/UMI
-//
-// Block 1: 7:00-9:00  Block 2: 9:00-11:00  Block 4: 1:00-3:00
-// Lunch staggered: Person A 11:00-11:30, Person B 11:30-12:00 (within pair)
-//   then:         Person A 12:00-12:30, Person B 12:30-1:00 (second pair group)
-//
-// Cross-train slots (11AM-1PM):
-//   11:00-12:00: P3+P4 cover solo on their stations (P1+P2 at lunch)
-//                P3 cross-trains to YMC7 during their half-lunch
-//                P4 cross-trains to G1 during their half-lunch
-//   12:00-1:00:  P1+P2 back, cover solo
-//                P1 cross-trains to UMI-C1 during their half-lunch
-//                P2 cross-trains to UMI-C2 during their half-lunch
-
-// 8-day rotation for 1st shift — each pod gets different starting YMC each day
-// Format: [block1_station, block2_station, crossTrain_station, block4_station]
 const ROTATION_S1: Record<string,Record<string,[string,string,string,string]>> = {
   '0': { P1:['ymc1','ymc2','uc1','ymc3'],  P2:['ymc2','ymc3','uc2','ymc4'],  P3:['ymc3','ymc4','ymc7','ymc1'],  P4:['ymc4','ymc1','g1','ymc2']  },
   '1': { P1:['ymc2','ymc3','uc1','ymc4'],  P2:['ymc3','ymc4','uc2','ymc1'],  P3:['ymc4','ymc1','ymc7','ymc2'],  P4:['ymc1','ymc2','g1','ymc3']  },
@@ -91,25 +73,10 @@ const ROTATION_S1: Record<string,Record<string,[string,string,string,string]>> =
   '7': { P1:['ymc4','ymc2','g1','ymc3'],   P2:['ymc1','ymc3','ymc7','ymc4'], P3:['ymc2','ymc4','uc1','ymc1'],   P4:['ymc3','ymc1','uc2','ymc2'] },
 }
 
-// Lunch schedule for 1st shift (staggered within pairs so station always manned)
-// LUNCH RULE (both shifts):
-// Person A: lunch 11:00 AM - 12:00 PM (covers solo while B is at station)
-// Person B: lunch 12:00 PM - 1:00 PM  (covers solo while A is at station)
-// Every person gets 1 full hour. Every station always has 1 person.
-// Lunch windows — same for ALL pods, both shifts
-// Person A: 11:00 AM - 12:00 PM | Person B: 12:00 PM - 1:00 PM
 const LUNCH_NOTE_A = 'Your lunch · 11:00 AM – 12:00 PM · Person B covers solo'
 const LUNCH_NOTE_B = 'Your lunch · 12:00 PM – 1:00 PM · Person A covers solo'
 
 // ─── 2ND SHIFT SCHEDULE ───────────────────────────────────────────────────────
-// Stations: YMC7 G1 UMI-C1 UMI-C2 (always 2nd shift)
-// No QA — start data collection at 10:00 AM
-// UMI stations = 1 person each (Person A on C1, Person B on C2 when pod assigned UMI)
-//
-// Block 1: 10:00-12:00
-// Lunch: Person A 11:00-12:00 | Person B 12:00-1:00 (same as 1st shift)
-// Block 2: 12:00-2:00 | Block 3: 2:00-4:00 | Block 4: 4:00-6:00
-
 const ROTATION_S2: Record<string,Record<string,[string,string,string,string]>> = {
   '0': { PA:['ymc7','ymc7','g1','uc1'],    PB:['g1','g1','ymc7','uc2'],     PC:['uc1','uc2','ymc7','g1'],    PD:['uc2','uc1','g1','ymc7']  },
   '1': { PA:['g1','g1','ymc7','uc1'],      PB:['uc1','uc2','g1','ymc7'],    PC:['ymc7','ymc7','uc1','g1'],   PD:['uc2','uc1','ymc7','g1']  },
@@ -144,7 +111,6 @@ function isSuperAdmin(staffId: string|null): boolean {
   return staffId==='yban'||staffId==='yban2'
 }
 function canManageStations(staffId: string|null): boolean {
-  // Only leads + Yban can disable/enable stations
   return ['kw','ah','dg','rr','yban','yban2'].includes(staffId||'')
 }
 
@@ -230,17 +196,17 @@ const COLORS: Record<string,string[]> = {
 
 // ─── MONITORING WINDOWS ───────────────────────────────────────────────────────
 const MONITORING: Record<string,{startMin:number,endMin:number,label:string}[]> = {
-  kw: [ // Kyle - offset so floor always has 1 lead present
+  kw: [
     {startMin:8*60+30,  endMin:9*60,    label:'Monitoring 1'},
     {startMin:10*60+30, endMin:11*60,   label:'Monitoring 2'},
     {startMin:13*60+30, endMin:14*60,   label:'Monitoring 3'},
   ],
-  ah: [ // Alan - offset 15 min from Kyle
+  ah: [
     {startMin:8*60+45,  endMin:9*60+15, label:'Monitoring 1'},
     {startMin:10*60+45, endMin:11*60+15,label:'Monitoring 2'},
     {startMin:13*60+45, endMin:14*60+15,label:'Monitoring 3'},
   ],
-  dg: [ // David - 2nd shift
+  dg: [
     {startMin:11*60+30, endMin:12*60,   label:'Monitoring 1'},
     {startMin:14*60,    endMin:14*60+30,label:'Monitoring 2'},
     {startMin:15*60+30, endMin:16*60,   label:'Monitoring 3'},
@@ -256,6 +222,11 @@ function checkMonitoringWindow(staffId: string, nowMin: number): boolean {
 
 // ─── REAL-TIME ATTENDANCE HOOK ────────────────────────────────────────────────
 function useRealtimeAttendance() {
+  // ✅ FIX: Create supabase client inside the hook so it runs in the browser
+  // where window and env vars are both available. The module-level pattern
+  // caused supabase to be null because it evaluated during SSR.
+  const [supabase] = useState(() => getSupabase())
+
   const today = getToday()
   const [absentIds, setAbsentIds] = useState<Set<string>>(new Set(['gr']))
   const [loading, setLoading] = useState(true)
@@ -305,7 +276,7 @@ function useRealtimeAttendance() {
       finally { setLoading(false) }
     }
     load()
-  },[today])
+  },[today, supabase])
 
   // Real-time subscription
   useEffect(()=>{
@@ -322,7 +293,7 @@ function useRealtimeAttendance() {
         }
       ).subscribe()
     return ()=>{ supabase!.removeChannel(channel) }
-  },[today])
+  },[today, supabase])
 
   const toggle = useCallback(async(staffId:string, markedBy:string)=>{
     const newStatus = absentIds.has(staffId)?'present':'absent'
@@ -334,10 +305,9 @@ function useRealtimeAttendance() {
         {onConflict:'staff_id,shift_date'}
       )
     } catch(e) {
-      // Revert on error
       setAbsentIds(prev=>{ const n=new Set(prev); newStatus==='absent'?n.delete(staffId):n.add(staffId); return n })
     }
-  },[absentIds,today])
+  },[absentIds,today,supabase])
 
   const bookTimeOff = useCallback(async(staffId:string, startDate:string, endDate:string)=>{
     if (!supabase) return
@@ -355,7 +325,7 @@ function useRealtimeAttendance() {
       setVacationMap(vmap)
     }
     if (startDate<=today&&today<=endDate) setAbsentIds(prev=>{ const n=new Set(prev); n.add(staffId); return n })
-  },[today])
+  },[today, supabase])
 
   const cancelTimeOff = useCallback(async(id:string,staffId:string,start:string,end:string)=>{
     if (!supabase) return
@@ -367,7 +337,7 @@ function useRealtimeAttendance() {
     }
     setVacationMap(prev=>{ const n={...prev}; if(n[staffId])n[staffId]=n[staffId].filter(v=>v.id!==id); return n })
     if (start<=today&&today<=end) setAbsentIds(prev=>{ const n=new Set(prev); n.delete(staffId); return n })
-  },[today])
+  },[today, supabase])
 
   const toggleStation = useCallback(async(stationId: string)=>{
     const next = new Set(disabledStations)
@@ -381,7 +351,7 @@ function useRealtimeAttendance() {
         {onConflict:'config_key'}
       )
     } catch(e){ console.error('toggleStation error:',e) }
-  },[disabledStations])
+  },[disabledStations, supabase])
 
   return {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff,disabledStations,toggleStation}
 }
@@ -409,9 +379,9 @@ export default function Home() {
   const [toMsg,         setToMsg]        = useState('')
 
   const {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff,disabledStations,toggleStation} = useRealtimeAttendance()
-  const [overrides, setOverrides] = useState<Record<string,string>>({}) // pod_blockIdx -> staffId override
+  const [overrides, setOverrides] = useState<Record<string,string>>({})
   const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
-  const [showReassign, setShowReassign] = useState<string|null>(null) // pod key being manually reassigned
+  const [showReassign, setShowReassign] = useState<string|null>(null)
 
   useEffect(()=>{ const t=setInterval(()=>setClock(getClockTime()),1000); return ()=>clearInterval(t) },[])
 
@@ -425,21 +395,16 @@ export default function Home() {
   const absentDCs  = pool.filter(m=>m.role==='DC'&&absentIds.has(m.id)).length
   const presentDAs = pool.filter(m=>m.role==='DA'&&!absentIds.has(m.id)).length
 
-  // Get my today's stations
   const myStations = myPod && rotation ? rotation[myPod] : null
 
-  // Build my personal timeline
   function buildMyTimeline() {
     if (!myStations || !currentUser) return []
     const [b1,b2,cross,b4] = myStations
     const isS1 = currentUser.shift===1
-    // Simple rule: Person A lunches 11-12, Person B lunches 12-1 (both shifts)
-    // If solo (partner absent or solo station) → default to Lunch B (12-1PM)
     const podMembers = myPod ? (isS1 ? ROSTER.s1 : ROSTER.s2).filter(m=>m.pod===myPod) : []
     const podPresent = podMembers.filter(m=>!absentIds.has(m.id))
     const isSoloStation = podPresent.length <= 1
     const isPersonA = !isSoloStation && podMembers[0]?.id === currentUser.id
-    // Solo person always gets Lunch B (12-1PM) so 11AM is covered
     const lunchWindow = isPersonA ? '11:00 AM – 12:00 PM' : '12:00 PM – 1:00 PM'
     const lunchNote = isSoloStation
       ? 'Solo lunch · 12:00 PM – 1:00 PM · Lead will cover your station'
@@ -448,7 +413,6 @@ export default function Home() {
     const isCrossUMI = cross==='uc1'||cross==='uc2'
     const crossNote = isCrossUMI ? '(solo - cross-training)' : '(cross-train with 2nd shift station)'
 
-    // Build monitoring blocks for Kyle/Alan/David
     const isMonLead = ['kw','ah','dg'].includes(currentUser.id)
     const monBlocks = isMonLead ? getMonitoringWindows(currentUser.id).map(w=>({
       type:'monitoring',
@@ -473,7 +437,6 @@ export default function Home() {
       return [...base,...monBlocks].sort((a,b)=>a.startMin-b.startMin)
     }
     else {
-      // Person A: lunch 11-12, Person B: lunch 12-1 (same as 1st shift)
       const base = [
         {type:'block',label:'Block 1',station:b1,timeLabel:'10:00 AM – 12:00 PM',startMin:10*60,durHrs:2,isCross:false,isSolo:b1==='uc1'||b1==='uc2'},
         {type:'lunch',label:'Lunch',station:'',timeLabel:lunchWindow,note:lunchNote,startMin:lunchStartMin,durHrs:1,isCross:false,isSolo:false},
@@ -487,7 +450,6 @@ export default function Home() {
 
   const myTimeline = buildMyTimeline()
 
-  // Build team schedule for leads
   function buildTeamSchedule() {
     const pods = shift===1 ? ['P1','P2','P3','P4'] : ['PA','PB','PC','PD']
     return pods.map(pod=>{
@@ -515,8 +477,6 @@ export default function Home() {
     }).filter(Boolean)
   }
 
-  // ── AUTO-ASSIGN ENGINE ───────────────────────────────────────────────────────
-  // When a station pair has 0 present members, find best available DC to cover
   function getAutoAssignments(): Record<string,{pod:string,station:string,assignee:typeof ALL_PEOPLE[0],blockLabel:string}[]> {
     const nowMinutes = new Date().getHours()*60+new Date().getMinutes()
     const result: Record<string,{pod:string,station:string,assignee:typeof ALL_PEOPLE[0],blockLabel:string}[]> = {}
@@ -533,22 +493,20 @@ export default function Home() {
 
       const podMembers = podPool.filter(m=>m.pod===pod)
       const presentMembers = podMembers.filter(m=>!absentIds.has(m.id))
-      if (presentMembers.length > 0) return // station is covered
+      if (presentMembers.length > 0) return
 
-      // Station is empty — find someone to cover
       const stations = rot[pod] as string[]
       const blocks = podShift===1
         ? [{idx:0,startMin:7*60,endMin:9*60,label:'Block 1'},{idx:1,startMin:9*60,endMin:11*60,label:'Block 2'},{idx:3,startMin:13*60,endMin:15*60,label:'Block 4'}]
         : [{idx:0,startMin:10*60,endMin:12*60,label:'Block 1'},{idx:1,startMin:12*60,endMin:14*60,label:'Block 2'},{idx:2,startMin:14*60,endMin:16*60,label:'Block 3'},{idx:3,startMin:16*60,endMin:18*60,label:'Block 4'}]
 
       blocks.forEach(block => {
-        if (nowMinutes < block.startMin || nowMinutes >= block.endMin) return // block not active now
+        if (nowMinutes < block.startMin || nowMinutes >= block.endMin) return
         const stationId = stations[block.idx]
         if (!stationId) return
         const overrideKey = `${pod}_${block.idx}`
-        if (overrides[overrideKey]) return // lead already manually assigned
+        if (overrides[overrideKey]) return
 
-        // Find best available person — same shift first, then opposite, then leads
         const sameShiftAvailable = ROSTER[`s${podShift}` as 's1'|'s2']
           .filter(m => m.role==='DC' && !absentIds.has(m.id) && m.pod!==pod
             && nowMinutes >= (podShift===1?7*60:10*60)
@@ -578,7 +536,6 @@ export default function Home() {
 
   const autoAssignments = getAutoAssignments()
 
-  // Fire notifications when auto-assignments change
   useEffect(()=>{
     Object.entries(autoAssignments).forEach(([pod,assignments])=>{
       assignments.forEach(a=>{
@@ -757,7 +714,6 @@ export default function Home() {
     timeoff:'Time Off', rotation:'Rotation'
   }
 
-  // Alert check
   const nowMin = new Date().getHours()*60+new Date().getMinutes()
   const myActiveBlock = myTimeline.find(t=>{
     if (t.type!=='block'&&t.type!=='cross') return false
@@ -1298,7 +1254,6 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-                {/* Monitoring summary for leads */}
                 {['kw','ah','dg'].includes(currentUser?.id||'') && (
                   <div style={{padding:'10px 14px',background:'#1d4ed8',borderRadius:'10px',
                     marginBottom:'10px',border:'1px solid #1d4ed8'}}>
@@ -1483,7 +1438,6 @@ export default function Home() {
         {/* ── TEAM SCHEDULE TAB ────────────────────────────────────────────── */}
         {tab==='team' && (
           <div>
-            {/* Disabled stations banner */}
             {disabledStations.size>0&&(
               <div style={{padding:'10px 14px',background:'#fef2f2',borderRadius:'10px',
                 border:'1px solid #fca5a5',marginBottom:'12px'}}>
@@ -1524,7 +1478,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Station key */}
             <div style={{background:'white',borderRadius:'10px',border:'1px solid #e5e7eb',
               padding:'10px 14px',marginBottom:'12px'}}>
               <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
@@ -1540,7 +1493,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Lunch schedule banner — same rule both shifts */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
               <div style={{padding:'8px 12px',background:'#fef3c7',borderRadius:'8px',
                 border:'1px solid #fde68a',fontSize:'11px'}}>
@@ -1561,7 +1513,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Overlap note */}
             {shift===1&&(
               <div style={{padding:'8px 12px',background:'#f0fdf4',borderRadius:'8px',
                 border:'1px solid #86efac',fontSize:'12px',color:'#16a34a',marginBottom:'10px'}}>
@@ -1569,7 +1520,6 @@ export default function Home() {
                 During lunch windows, 1st shift DCs cross-train on 2nd shift stations.
               </div>
             )}
-            {/* Monitoring schedule banner */}
             <div style={{padding:'8px 12px',background:'#eff6ff',borderRadius:'8px',
               border:'1px solid #bfdbfe',fontSize:'11px',color:'#1d4ed8',marginBottom:'10px'}}>
               <strong>&#128270; Lead monitoring schedule (every 90 min · 30 min each):</strong>
@@ -1581,7 +1531,6 @@ export default function Home() {
               &nbsp;· Partner runs SOLO during these windows.
             </div>
 
-            {/* AUTO-ASSIGNMENT ALERTS */}
             {Object.entries(autoAssignments).map(([pod,assignments])=>(
               assignments.map((a,ai)=>(
                 <div key={`${pod}_${ai}`} style={{padding:'10px 14px',background:'#fef3c7',
@@ -1647,13 +1596,6 @@ export default function Home() {
               return (
                 <div key={pod} style={{background:'white',borderRadius:'12px',
                   border:'1px solid #e5e7eb',marginBottom:'10px',overflow:'hidden'}}>
-                  {/* Check if any station in this pod is disabled */}
-                  {(()=>{
-                    const podStations = row.blocks.map((b:any)=>b.station)
-                    const hasDisabled = podStations.some((s:string)=>disabledStations.has(s))
-                    const allDisabled = podStations.every((s:string)=>disabledStations.has(s)||s==='')
-                    return null
-                  })()}
                   <div style={{padding:'10px 14px',background:'#f9fafb',
                     borderBottom:'1px solid #e5e7eb',display:'flex',
                     alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
@@ -1707,7 +1649,6 @@ export default function Home() {
                         <div key={bi} style={{
                           borderRight:bi<blocks.length-1?'1px solid #e5e7eb':'none',
                           background:isActive?`${info.dot}08`:'white'}}>
-                          {/* Disabled station overlay */}
                           {disabledStations.has(b.station) ? (
                             <div style={{padding:'12px 10px',background:'#f3f4f6',
                               borderBottom:'1px solid #e5e7eb',opacity:0.7}}>
