@@ -1507,11 +1507,19 @@ export default function Home() {
                     ))}
                     {isSolo&&<span style={{marginLeft:'auto',padding:'3px 10px',borderRadius:'99px',
                       fontSize:'10px',fontWeight:'700',background:'#fef3c7',color:'#92400e'}}>SOLO</span>}
-                    {!isSolo&&isMonitoringSolo&&<span style={{marginLeft:'auto',padding:'3px 10px',
-                      borderRadius:'99px',fontSize:'10px',fontWeight:'700',
-                      background:'#eff6ff',color:'#1d4ed8'}}>
-                      SOLO · {leadInMon?.name.split(' ')[0]} monitoring
-                    </span>}
+                    {!isSolo&&(()=>{
+                      const nowMC=new Date().getHours()*60+new Date().getMinutes()
+                      const lim=row.allPod.find((m:any)=>
+                        (m.id==='kw'||m.id==='ah'||m.id==='dg')&&
+                        !absentIds.has(m.id)&&isInMonitoringWindow(m.id,nowMC))
+                      return lim?(
+                        <span style={{marginLeft:'auto',padding:'3px 10px',
+                          borderRadius:'99px',fontSize:'10px',fontWeight:'700',
+                          background:'#eff6ff',color:'#1d4ed8'}}>
+                          SOLO · {lim.name.split(' ')[0]} monitoring
+                        </span>
+                      ):null
+                    })()}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:`repeat(${blocks.length},1fr)`,overflow:'hidden'}}>
                     {blocks.map((b:any,bi:number)=>{
