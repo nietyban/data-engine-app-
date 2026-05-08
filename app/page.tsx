@@ -228,6 +228,32 @@ const COLORS: Record<string,string[]> = {
   GUEST:['#F3F4F6','#6B7280'], SUPER_ADMIN:['#F3E8FF','#7C3AED']
 }
 
+// ─── MONITORING WINDOWS ───────────────────────────────────────────────────────
+const MONITORING: Record<string,{startMin:number,endMin:number,label:string}[]> = {
+  kw: [ // Kyle - offset so floor always has 1 lead present
+    {startMin:8*60+30,  endMin:9*60,    label:'Monitoring 1'},
+    {startMin:10*60+30, endMin:11*60,   label:'Monitoring 2'},
+    {startMin:13*60+30, endMin:14*60,   label:'Monitoring 3'},
+  ],
+  ah: [ // Alan - offset 15 min from Kyle
+    {startMin:8*60+45,  endMin:9*60+15, label:'Monitoring 1'},
+    {startMin:10*60+45, endMin:11*60+15,label:'Monitoring 2'},
+    {startMin:13*60+45, endMin:14*60+15,label:'Monitoring 3'},
+  ],
+  dg: [ // David - 2nd shift
+    {startMin:11*60+30, endMin:12*60,   label:'Monitoring 1'},
+    {startMin:14*60,    endMin:14*60+30,label:'Monitoring 2'},
+    {startMin:15*60+30, endMin:16*60,   label:'Monitoring 3'},
+    {startMin:17*60+30, endMin:18*60,   label:'Monitoring 4'},
+  ],
+}
+function getMonitoringWindows(staffId: string) {
+  return MONITORING[staffId] || []
+}
+function checkMonitoringWindow(staffId: string, nowMin: number): boolean {
+  return getMonitoringWindows(staffId).some(w => nowMin >= w.startMin && nowMin < w.endMin)
+}
+
 // ─── REAL-TIME ATTENDANCE HOOK ────────────────────────────────────────────────
 function useRealtimeAttendance() {
   const today = getToday()
@@ -1511,7 +1537,7 @@ export default function Home() {
                       const nowMC=new Date().getHours()*60+new Date().getMinutes()
                       const lim=row.allPod.find((m:any)=>
                         (m.id==='kw'||m.id==='ah'||m.id==='dg')&&
-                        !absentIds.has(m.id)&&isInMonitoringWindow(m.id,nowMC))
+                        !absentIds.has(m.id)&&checkMonitoringWindow(m.id,nowMC))
                       return lim?(
                         <span style={{marginLeft:'auto',padding:'3px 10px',
                           borderRadius:'99px',fontSize:'10px',fontWeight:'700',
