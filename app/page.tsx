@@ -472,7 +472,7 @@ function useRealtimeAttendance(userId: string|null) {
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const [shift,        setShift]        = useState<1|2>(1)
-  const [tab,          setTab]          = useState<'schedule'|'roster'|'rotation'>('schedule')
+  const [tab,          setTab]          = useState<string>('schedule')
   const [selectedUser, setSelectedUser] = useState<string|null>(null)
   const [loggedIn,     setLoggedIn]     = useState(false)
   const [clock,        setClock]        = useState(getClockTime())
@@ -1406,14 +1406,17 @@ export default function Home() {
       {/* TABS */}
       <div style={{display:'flex',gap:'4px',background:'#f3f4f6',padding:'4px',
         borderRadius:'8px',marginBottom:'12px'}}>
-        {(['schedule','roster','rotation'] as const).map(t=>(
+        {(currentUser?.role==='LEAD'
+        ? ['schedule','roster','timeoff','rotation']
+        : ['schedule','roster','rotation'] as const
+      ).map((t:string)=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{flex:1,padding:'7px',borderRadius:'6px',cursor:'pointer',
               fontSize:'11px',fontWeight:'600',textTransform:'uppercase',
               letterSpacing:'0.05em',border:'none',
               background:tab===t?'white':'transparent',
               color:tab===t?'#111827':'#6b7280'}}>
-            {t}
+            {t==='timeoff'?'Time Off':t}
           </button>
         ))}
       </div>
@@ -1688,6 +1691,180 @@ export default function Home() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── TIME OFF TAB — leads only ─────────────────────────────────────────── */}
+      {tab==='timeoff' && currentUser?.role==='LEAD' && (
+        <div>
+          <div style={{background:'white',borderRadius:'12px',
+            border:'1px solid #e5e7eb',padding:'16px',marginBottom:'12px'}}>
+            <div style={{display:'flex',alignItems:'center',
+              justifyContent:'space-between',marginBottom:'16px'}}>
+              <div>
+                <div style={{fontSize:'14px',fontWeight:'700'}}>Upcoming Time Off</div>
+                <div style={{fontSize:'12px',color:'#6b7280',marginTop:'2px'}}>
+                  All scheduled absences across both shifts
+                </div>
+              </div>
+              <div style={{display:'flex',gap:'6px'}}>
+                {[1,2,'all'].map(s=>(
+                  <button key={String(s)}
+                    onClick={()=>setShift(s==='all'?shift:s as 1|2)}
+                    style={{padding:'5px 12px',borderRadius:'6px',fontSize:'11px',
+                      fontWeight:'600',cursor:'pointer',border:'1px solid #e5e7eb',
+                      background:s===shift||s==='all'?'#eff6ff':'white',
+                      color:s===shift||s==='all'?'#1d4ed8':'#6b7280'}}>
+                    {s==='all'?'All':s===1?'1st':'2nd'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Build time off list from vacationMap */}
+            {(()=>{
+              const today = getToday()
+              // Flatten all time off entries
+              const allEntries: {
+                staffId:string, name:string, role:string, shift:number,
+                start:string, end:string, id:string, days:number
+              }[] = []
+
+              Object.entries(vacationMap).forEach(([staffId, ranges]) => {
+                const person = ALL_PEOPLE.find(p=>p.id===staffId)
+                if (!person) return
+                ranges.forEach(r => {
+                  if (r.end >= today) {
+                    const days = Math.round(
+                      (new Date(r.end).getTime()-new Date(r.start).getTime())/86400000
+                    )+1
+                    allEntries.push({
+                      staffId, name:person.name, role:person.role,
+                      shift:person.shift, start:r.start, end:r.end, id:r.id, days
+                    })
+                  }
+                })
+              })
+
+              // Sort by start date
+              allEntries.sort((a,b)=>a.start.localeCompare(b.start))
+
+              // Group by week
+              const grouped: Record<string, typeof allEntries> = {}
+              allEntries.forEach(e => {
+                const d = new Date(e.start)
+                const monday = new Date(d)
+                monday.setDate(d.getDate()-d.getDay()+1)
+                const key = monday.toISOString().split('T')[0]
+                if (!grouped[key]) grouped[key]=[]
+                grouped[key].push(e)
+              })
+
+              // Find days with coverage warnings (3+ people out)
+              const dayCounts: Record<string,number> = {}
+              allEntries.forEach(e=>{
+                const cur=new Date(e.start)
+                const end=new Date(e.end)
+                while(cur<=end){
+                  const k=cur.toISOString().split('T')[0]
+                  dayCounts[k]=(dayCounts[k]||0)+1
+                  cur.setDate(cur.getDate()+1)
+                }
+              })
+
+              if (allEntries.length===0) return (
+                <div style={{textAlign:'center',padding:'32px',color:'#9ca3af',fontSize:'13px'}}>
+                  <div style={{fontSize:'32px',marginBottom:'8px'}}>📅</div>
+                  No upcoming time off scheduled
+                </div>
+              )
+
+              return (
+                <>
+                  {/* Coverage warnings */}
+                  {Object.entries(dayCounts).filter(([,n])=>n>=3).map(([date,count])=>(
+                    <div key={date} style={{padding:'8px 12px',background:'#fef2f2',
+                      borderRadius:'8px',border:'1px solid #fca5a5',fontSize:'12px',
+                      color:'#dc2626',marginBottom:'8px',display:'flex',
+                      alignItems:'center',gap:'8px'}}>
+                      <span>⚠️</span>
+                      <strong>{new Date(date+'T12:00:00').toLocaleDateString('en-US',
+                        {weekday:'short',month:'short',day:'numeric'})}</strong>
+                      &nbsp;— {count} people out. Review coverage.
+                    </div>
+                  ))}
+
+                  {/* Grouped by week */}
+                  {Object.entries(grouped).map(([weekStart, entries])=>(
+                    <div key={weekStart} style={{marginBottom:'16px'}}>
+                      <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
+                        textTransform:'uppercase',letterSpacing:'0.08em',
+                        marginBottom:'8px',paddingBottom:'6px',
+                        borderBottom:'1px solid #f3f4f6'}}>
+                        Week of {new Date(weekStart+'T12:00:00').toLocaleDateString('en-US',
+                          {month:'long',day:'numeric'})}
+                      </div>
+                      {entries.map(e=>(
+                        <div key={e.id} style={{display:'flex',alignItems:'center',
+                          gap:'12px',padding:'10px 12px',borderRadius:'8px',
+                          background:'#f9fafb',border:'1px solid #e5e7eb',
+                          marginBottom:'6px'}}>
+                          {/* Avatar */}
+                          <div style={{width:'32px',height:'32px',borderRadius:'50%',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:'10px',fontWeight:'700',flexShrink:0,
+                            background:e.role==='LEAD'?'#E6F1FB':e.role==='DC'?'#EAF3DE':'#E1D5E7',
+                            color:e.role==='LEAD'?'#0C447C':e.role==='DC'?'#3B6D11':'#4A235A'}}>
+                            {e.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                          </div>
+                          {/* Info */}
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:'13px',fontWeight:'600'}}>{e.name}</div>
+                            <div style={{fontSize:'11px',color:'#6b7280',marginTop:'1px',
+                              fontFamily:'monospace'}}>
+                              {e.role} · Shift {e.shift} ·&nbsp;
+                              {e.start===e.end
+                                ? new Date(e.start+'T12:00:00').toLocaleDateString('en-US',
+                                    {weekday:'short',month:'short',day:'numeric'})
+                                : `${new Date(e.start+'T12:00:00').toLocaleDateString('en-US',
+                                    {month:'short',day:'numeric'})} → ${
+                                    new Date(e.end+'T12:00:00').toLocaleDateString('en-US',
+                                    {month:'short',day:'numeric'})}`
+                              }
+                              &nbsp;· {e.days} day{e.days>1?'s':''}
+                            </div>
+                          </div>
+                          {/* Badge */}
+                          <span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'10px',
+                            fontWeight:'700',fontFamily:'monospace',
+                            background: e.start<=today&&today<=e.end?'#fee2e2':'#eff6ff',
+                            color: e.start<=today&&today<=e.end?'#dc2626':'#1d4ed8'}}>
+                            {e.start<=today&&today<=e.end?'OUT NOW':'UPCOMING'}
+                          </span>
+                          {/* Cancel */}
+                          <button
+                            onClick={()=>cancelTimeOff(e.id,e.staffId,e.start,e.end)}
+                            style={{padding:'4px 10px',borderRadius:'6px',fontSize:'11px',
+                              border:'1px solid #fca5a5',background:'#fef2f2',
+                              color:'#dc2626',cursor:'pointer',flexShrink:0}}>
+                            Cancel
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
+                  {/* Summary */}
+                  <div style={{marginTop:'8px',padding:'10px 14px',background:'#f0fdf4',
+                    borderRadius:'8px',border:'1px solid #86efac',fontSize:'12px',
+                    color:'#16a34a',display:'flex',justifyContent:'space-between'}}>
+                    <span>{allEntries.length} request{allEntries.length!==1?'s':''} scheduled</span>
+                    <span>{Object.values(dayCounts).filter(n=>n>=3).length} coverage warning{Object.values(dayCounts).filter(n=>n>=3).length!==1?'s':''}</span>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
         </div>
       )}
 
