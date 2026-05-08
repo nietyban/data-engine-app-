@@ -1025,12 +1025,14 @@ export default function Home() {
           )}
 
           {/* Change PIN */}
-          {!isGuest(currentUser.id) && <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
-            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
-              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
-              background:'white',color:'#6b7280'}}>
-            🔐 Change my PIN
-          </button>
+          {!isGuest(currentUser.id) && (
+            <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+              style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
+                border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+                background:'white',color:'#6b7280'}}>
+              🔐 Change my PIN
+            </button>
+          )}
 
           {/* PIN change modal */}
           {showSetPin && (
@@ -1085,12 +1087,14 @@ export default function Home() {
 
 
           {/* Schedule Time Off */}
-          {!isGuest(currentUser.id) && <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
-            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
-              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
-              background:'white',color:'#6b7280'}}>
-            📅 {showTimeOff ? 'Close' : 'Schedule time off'}
-          </button>}
+          {!isGuest(currentUser.id) && (
+            <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+              style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
+                border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+                background:'white',color:'#6b7280'}}>
+              📅 {showTimeOff ? 'Close' : 'Schedule time off'}
+            </button>
+          )}
 
           {showTimeOff && (
             <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
@@ -1330,12 +1334,14 @@ export default function Home() {
 
 
           {/* Schedule Time Off */}
-          {!isGuest(currentUser.id) && <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
-            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
-              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
-              background:'white',color:'#6b7280'}}>
-            📅 {showTimeOff ? 'Close' : 'Schedule time off'}
-          </button>}
+          {!isGuest(currentUser.id) && (
+            <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+              style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
+                border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+                background:'white',color:'#6b7280'}}>
+              📅 {showTimeOff ? 'Close' : 'Schedule time off'}
+            </button>
+          )}
 
           {showTimeOff && (
             <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
