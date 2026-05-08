@@ -596,7 +596,7 @@ export default function Home() {
           </div>
         </div>
 
-        <button onClick={()=>selectedUser&&(setPinStep(true),setPinInput(''),setPinError(''))}
+        <button onClick={()=>{ if(selectedUser){ setPinStep(true); setPinInput(''); setPinError('') } }}
           disabled={!selectedUser}
           style={{width:'100%',padding:'13px',borderRadius:'10px',
             background:selectedUser?'#3b82f6':'#e5e7eb',
