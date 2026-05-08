@@ -340,6 +340,16 @@ export default function Home() {
   const [selectedUser, setSelectedUser] = useState<string|null>(null)
   const [loggedIn,     setLoggedIn]     = useState(false)
   const [clock,        setClock]        = useState(getClockTime())
+  const [pinStep,      setPinStep]      = useState(false)
+  const [pinInput,     setPinInput]     = useState('')
+  const [pinError,     setPinError]     = useState('')
+  const [pinAttempts,  setPinAttempts]  = useState(0)
+  const [pinLocked,    setPinLocked]    = useState(false)
+  const [pinLockUntil, setPinLockUntil] = useState<number|null>(null)
+  const [showSetPin,   setShowSetPin]   = useState(false)
+  const [newPin,       setNewPin]       = useState('')
+  const [newPinConfirm,setNewPinConfirm]= useState('')
+  const [pinSetMsg,    setPinSetMsg]    = useState('')
 
   const { absentIds, loading, synced, toggle } = useRealtimeAttendance(selectedUser)
 
@@ -446,17 +456,143 @@ export default function Home() {
           </div>
         </div>
 
-        <button onClick={()=>selectedUser&&setLoggedIn(true)} disabled={!selectedUser}
+        <button onClick={()=>selectedUser&&(setPinStep(true),setPinInput(''),setPinError(''))}
+          disabled={!selectedUser}
           style={{width:'100%',padding:'13px',borderRadius:'10px',
             background:selectedUser?'#3b82f6':'#e5e7eb',
             color:selectedUser?'white':'#9ca3af',
             border:'none',fontSize:'15px',fontWeight:'700',
             cursor:selectedUser?'pointer':'default'}}>
-          Sign in →
+          Continue →
         </button>
       </div>
     </div>
   )
+
+  // ── PIN ENTRY SCREEN ─────────────────────────────────────────────────────────
+  if (!loggedIn && pinStep && selectedUser) {
+    const user = ALL_PEOPLE.find(m=>m.id===selectedUser)
+    const isDefault = isDefaultPin(selectedUser)
+    const lockRemaining = pinLockUntil ? Math.ceil((pinLockUntil - Date.now()) / 1000) : 0
+
+    const handlePinDigit = (digit: string) => {
+      if (pinLocked && Date.now() < (pinLockUntil||0)) return
+      if (pinLocked) { setPinLocked(false); setPinAttempts(0) }
+      const next = (pinInput + digit).slice(0, 4)
+      setPinInput(next)
+      setPinError('')
+      if (next.length === 4) {
+        if (next === getPin(selectedUser)) {
+          setPinInput(''); setPinStep(false); setPinAttempts(0)
+          setLoggedIn(true)
+        } else {
+          const attempts = pinAttempts + 1
+          setPinAttempts(attempts)
+          if (attempts >= 3) {
+            setPinLocked(true)
+            setPinLockUntil(Date.now() + 5 * 60 * 1000)
+            setPinError('Too many attempts. Locked for 5 minutes.')
+          } else {
+            setPinError(`Incorrect PIN. ${3 - attempts} attempt${3-attempts===1?'':'s'} remaining.`)
+          }
+          setTimeout(() => setPinInput(''), 600)
+        }
+      }
+    }
+
+    const handlePinDelete = () => {
+      setPinInput(p => p.slice(0, -1))
+      setPinError('')
+    }
+
+    return (
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',
+        minHeight:'100vh',flexDirection:'column',fontFamily:'system-ui',
+        background:"linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)",
+        padding:'20px',position:'relative'}}>
+        <RobotBg/>
+        <div style={{background:'white',padding:'32px',borderRadius:'16px',
+          boxShadow:'0 4px 24px rgba(0,0,0,0.08)',width:'100%',maxWidth:'360px',
+          position:'relative',zIndex:1}}>
+
+          {/* Back button */}
+          <button onClick={()=>{setPinStep(false);setPinInput('');setPinError('')}}
+            style={{background:'none',border:'none',cursor:'pointer',
+              fontSize:'13px',color:'#6b7280',marginBottom:'16px',padding:'0',
+              display:'flex',alignItems:'center',gap:'4px'}}>
+            ← Back
+          </button>
+
+          <div style={{textAlign:'center',marginBottom:'24px'}}>
+            <div style={{width:'56px',height:'56px',borderRadius:'50%',
+              background:'#eff6ff',border:'2px solid #3b82f6',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              margin:'0 auto 12px',fontSize:'20px'}}>
+              🔐
+            </div>
+            <div style={{fontSize:'18px',fontWeight:'700',marginBottom:'4px'}}>
+              Enter your PIN
+            </div>
+            <div style={{fontSize:'13px',color:'#6b7280'}}>
+              {user?.name}
+            </div>
+            {isDefault && (
+              <div style={{marginTop:'8px',padding:'6px 12px',background:'#fffbeb',
+                borderRadius:'8px',border:'1px solid #fde68a',fontSize:'11px',
+                color:'#92400e'}}>
+                Default PIN is <strong>0000</strong> — change it after logging in
+              </div>
+            )}
+          </div>
+
+          {/* PIN dots */}
+          <div style={{display:'flex',justifyContent:'center',gap:'16px',marginBottom:'24px'}}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{width:'16px',height:'16px',borderRadius:'50%',
+                background: pinInput.length > i
+                  ? pinError ? '#ef4444' : '#3b82f6'
+                  : '#e5e7eb',
+                transition:'background 0.15s'}}/>
+            ))}
+          </div>
+
+          {/* Error message */}
+          {pinError && (
+            <div style={{padding:'8px 12px',background:'#fef2f2',borderRadius:'8px',
+              border:'1px solid #fca5a5',fontSize:'12px',color:'#dc2626',
+              textAlign:'center',marginBottom:'16px'}}>
+              {pinError}
+            </div>
+          )}
+
+          {/* Numpad */}
+          {!pinLocked && (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
+              {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d,i)=>(
+                <button key={i} onClick={()=>d==='⌫'?handlePinDelete():d&&handlePinDigit(d)}
+                  disabled={!d}
+                  style={{padding:'16px',borderRadius:'12px',fontSize:'18px',
+                    fontWeight:'600',cursor:d?'pointer':'default',
+                    border:`1px solid ${d?'#e5e7eb':'transparent'}`,
+                    background: d==='⌫'?'#fef2f2': d?'white':'transparent',
+                    color: d==='⌫'?'#dc2626':'#374151',
+                    transition:'all 0.1s'}}>
+                  {d}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {pinLocked && (
+            <div style={{textAlign:'center',padding:'20px',color:'#dc2626',
+              fontSize:'13px'}}>
+              🔒 Account locked · Contact your shift lead to reset
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   // ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
   return (
@@ -635,10 +771,63 @@ export default function Home() {
               borderColor:absentIds.has(currentUser.id)?'#a5f3fc':'#fca5a5',
               background:absentIds.has(currentUser.id)?'#ecfeff':'#fef2f2',
               color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
-            {absentIds.has(currentUser.id)
-              ?'↩ Mark myself PRESENT'
-              :'I will be OUT today'}
+            {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
           </button>
+
+          {/* Change PIN */}
+          <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
+              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+              background:'white',color:'#6b7280'}}>
+            🔐 Change my PIN
+          </button>
+
+          {/* PIN change modal */}
+          {showSetPin && (
+            <div style={{marginTop:'12px',padding:'14px',background:'#f9fafb',
+              borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+              <div style={{fontSize:'13px',fontWeight:'600',marginBottom:'10px'}}>
+                Set a new 4-digit PIN
+              </div>
+              <input type="password" maxLength={4} value={newPin}
+                onChange={e=>setNewPin(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                placeholder="New PIN (4 digits)"
+                style={{width:'100%',padding:'8px 12px',borderRadius:'8px',
+                  border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'8px',
+                  letterSpacing:'0.3em',textAlign:'center'}}/>
+              <input type="password" maxLength={4} value={newPinConfirm}
+                onChange={e=>setNewPinConfirm(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                placeholder="Confirm PIN"
+                style={{width:'100%',padding:'8px 12px',borderRadius:'8px',
+                  border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'8px',
+                  letterSpacing:'0.3em',textAlign:'center'}}/>
+              {pinSetMsg && (
+                <div style={{fontSize:'12px',color: pinSetMsg.includes('✓')?'#16a34a':'#dc2626',
+                  marginBottom:'8px',textAlign:'center'}}>
+                  {pinSetMsg}
+                </div>
+              )}
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setShowSetPin(false)}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                    background:'white',cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{
+                  if (newPin.length!==4){setPinSetMsg('PIN must be 4 digits');return}
+                  if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
+                  setPin(currentUser.id, newPin)
+                  setPinSetMsg('✓ PIN updated successfully!')
+                  setTimeout(()=>setShowSetPin(false),1500)
+                }}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',
+                    fontSize:'12px',fontWeight:'600'}}>
+                  Save PIN
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -714,6 +903,61 @@ export default function Home() {
               color:absentIds.has(currentUser.id)?'#16a34a':'#dc2626'}}>
             {absentIds.has(currentUser.id)?'↩ Mark myself PRESENT':'I will be OUT today'}
           </button>
+
+          <button onClick={()=>{setShowSetPin(true);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'8px',
+              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+              background:'white',color:'#6b7280'}}>
+            🔐 Change my PIN
+          </button>
+
+          {showSetPin && (
+            <div style={{marginTop:'12px',padding:'14px',background:'#f9fafb',
+              borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+              <div style={{fontSize:'13px',fontWeight:'600',marginBottom:'10px'}}>
+                Set a new 4-digit PIN
+              </div>
+              <input type="password" maxLength={4} value={newPin}
+                onChange={e=>setNewPin(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                placeholder="New PIN (4 digits)"
+                style={{width:'100%',padding:'8px 12px',borderRadius:'8px',
+                  border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'8px',
+                  letterSpacing:'0.3em',textAlign:'center'}}/>
+              <input type="password" maxLength={4} value={newPinConfirm}
+                onChange={e=>setNewPinConfirm(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                placeholder="Confirm PIN"
+                style={{width:'100%',padding:'8px 12px',borderRadius:'8px',
+                  border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'8px',
+                  letterSpacing:'0.3em',textAlign:'center'}}/>
+              {pinSetMsg && (
+                <div style={{fontSize:'12px',
+                  color:pinSetMsg.includes('✓')?'#16a34a':'#dc2626',
+                  marginBottom:'8px',textAlign:'center'}}>
+                  {pinSetMsg}
+                </div>
+              )}
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setShowSetPin(false)}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',
+                    border:'1px solid #e5e7eb',background:'white',
+                    cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{
+                  if (newPin.length!==4){setPinSetMsg('PIN must be 4 digits');return}
+                  if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
+                  setPin(currentUser.id, newPin)
+                  setPinSetMsg('✓ PIN updated successfully!')
+                  setTimeout(()=>setShowSetPin(false),1500)
+                }}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',
+                    fontSize:'12px',fontWeight:'600'}}>
+                  Save PIN
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -977,6 +1221,18 @@ export default function Home() {
                         color:out?'#dc2626':'#16a34a',marginLeft:'4px'}}>
                         {out?'OUT':'IN'}
                       </span>
+                      {isLead && (
+                        <button onClick={(e)=>{
+                          e.stopPropagation()
+                          setPin(m.id, DEFAULT_PIN)
+                          alert(`PIN for ${m.name} reset to 0000`)
+                        }}
+                          style={{marginLeft:'4px',padding:'1px 6px',borderRadius:'4px',
+                            fontSize:'9px',border:'1px solid #e5e7eb',background:'white',
+                            cursor:'pointer',color:'#6b7280'}}>
+                          reset PIN
+                        </button>
+                      )}
                     </div>
                   )
                 })}
