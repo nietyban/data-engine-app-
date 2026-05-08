@@ -214,12 +214,14 @@ function useRealtimeAttendance(userId: string|null) {
   const [absentIds, setAbsentIds] = useState<Set<string>>(new Set(['gr']))
   const [loading, setLoading]     = useState(true)
   const [synced, setSynced]       = useState(false)
+  const [vacationMap, setVacationMap] = useState<Record<string,{start:string,end:string,id:string}[]>>({})
 
   // Load from Supabase on mount
   useEffect(() => {
     async function load() {
       try {
         if (!supabase) { setLoading(false); return }
+        // Load attendance
         const { data, error } = await supabase
           .from('attendance')
           .select('staff_id, status')
@@ -229,10 +231,22 @@ function useRealtimeAttendance(userId: string|null) {
           const absent = new Set(
             data.filter((r:any) => r.status==='absent').map((r:any) => r.staff_id)
           )
-          // Grant always absent (vacation)
           absent.add('gr')
           setAbsentIds(absent)
           setSynced(true)
+        }
+        // Load vacation ranges
+        const { data: vacData } = await supabase
+          .from('time_off')
+          .select('id, staff_id, start_date, end_date')
+          .gte('end_date', today)
+        if (vacData) {
+          const vmap: Record<string,{start:string,end:string,id:string}[]> = {}
+          vacData.forEach((v:any) => {
+            if (!vmap[v.staff_id]) vmap[v.staff_id] = []
+            vmap[v.staff_id].push({start:v.start_date,end:v.end_date,id:v.id})
+          })
+          setVacationMap(vmap)
         }
       } catch(e) { console.error('Supabase load failed:', e) }
       finally { setLoading(false) }
@@ -330,7 +344,112 @@ function useRealtimeAttendance(userId: string|null) {
     ensureRows()
   }, [today])
 
-  return { absentIds, loading, synced, toggle }
+  // Book time off — marks absent for each day in range
+  const bookTimeOff = async (staffId: string, startDate: string, endDate: string) => {
+    if (!supabase) return
+    try {
+      // Insert into time_off table
+      const { data: tof } = await supabase
+        .from('time_off')
+        .insert({ staff_id: staffId, start_date: startDate, end_date: endDate })
+        .select()
+      // Mark absent for each day in range
+      const rows = []
+      const cur = new Date(startDate)
+      const end = new Date(endDate)
+      while (cur <= end) {
+        rows.push({
+          staff_id: staffId,
+          shift_date: cur.toISOString().split('T')[0],
+          status: 'absent',
+          marked_by: staffId,
+          marked_at: new Date().toISOString(),
+          notes: 'scheduled time off',
+        })
+        cur.setDate(cur.getDate() + 1)
+      }
+      await supabase.from('attendance').upsert(rows, { onConflict: 'staff_id,shift_date' })
+      // Reload vacation map
+      const { data: vacData } = await supabase
+        .from('time_off').select('id, staff_id, start_date, end_date').gte('end_date', today)
+      if (vacData) {
+        const vmap: Record<string,{start:string,end:string,id:string}[]> = {}
+        vacData.forEach((v:any) => {
+          if (!vmap[v.staff_id]) vmap[v.staff_id] = []
+          vmap[v.staff_id].push({start:v.start_date,end:v.end_date,id:v.id})
+        })
+        setVacationMap(vmap)
+      }
+      // Update absent if today is in range
+      if (startDate <= today && today <= endDate) {
+        setAbsentIds(prev => { const n=new Set(prev); n.add(staffId); return n })
+      }
+    } catch(e) { console.error('bookTimeOff error:', e) }
+  }
+
+  // Cancel time off
+  const cancelTimeOff = async (timeOffId: string, staffId: string, startDate: string, endDate: string) => {
+    if (!supabase) return
+    try {
+      await supabase.from('time_off').delete().eq('id', timeOffId)
+      // Un-mark absent for days that no longer have time off
+      const cur = new Date(startDate)
+      const end = new Date(endDate)
+      while (cur <= end) {
+        const d = cur.toISOString().split('T')[0]
+        await supabase.from('attendance')
+          .upsert({ staff_id: staffId, shift_date: d, status: 'present',
+                    marked_by: staffId, marked_at: new Date().toISOString() },
+                  { onConflict: 'staff_id,shift_date' })
+        cur.setDate(cur.getDate() + 1)
+      }
+      // Remove from local map
+      setVacationMap(prev => {
+        const n = {...prev}
+        if (n[staffId]) n[staffId] = n[staffId].filter(v=>v.id!==timeOffId)
+        return n
+      })
+      if (startDate <= today && today <= endDate) {
+        setAbsentIds(prev => { const n=new Set(prev); n.delete(staffId); return n })
+      }
+    } catch(e) { console.error('cancelTimeOff error:', e) }
+  }
+
+  // Save PIN to Supabase roster table
+  const savePinToDb = async (staffId: string, pin: string) => {
+    if (!supabase) {
+      // Fallback to localStorage
+      if (typeof window !== 'undefined') localStorage.setItem(`pin_${staffId}`, pin)
+      return
+    }
+    try {
+      await supabase.from('roster').update({ clerk_user_id: `pin:${pin}` }).eq('id', staffId)
+      // Also save locally as cache
+      if (typeof window !== 'undefined') localStorage.setItem(`pin_${staffId}`, pin)
+    } catch(e) {
+      if (typeof window !== 'undefined') localStorage.setItem(`pin_${staffId}`, pin)
+    }
+  }
+
+  // Load PIN from Supabase (falls back to localStorage)
+  const loadPinFromDb = async (staffId: string): Promise<string> => {
+    if (typeof window !== 'undefined') {
+      const local = localStorage.getItem(`pin_${staffId}`)
+      if (local) return local
+    }
+    if (!supabase) return DEFAULT_PIN
+    try {
+      const { data } = await supabase.from('roster').select('clerk_user_id').eq('id', staffId).single()
+      if (data?.clerk_user_id?.startsWith('pin:')) {
+        const pin = data.clerk_user_id.replace('pin:','')
+        if (typeof window !== 'undefined') localStorage.setItem(`pin_${staffId}`, pin)
+        return pin
+      }
+    } catch(e) {}
+    return DEFAULT_PIN
+  }
+
+  return { absentIds, loading, synced, toggle, vacationMap, bookTimeOff, cancelTimeOff, savePinToDb, loadPinFromDb }
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -350,8 +469,12 @@ export default function Home() {
   const [newPin,       setNewPin]       = useState('')
   const [newPinConfirm,setNewPinConfirm]= useState('')
   const [pinSetMsg,    setPinSetMsg]    = useState('')
+  const [showTimeOff,  setShowTimeOff]  = useState(false)
+  const [toStart,      setToStart]      = useState('')
+  const [toEnd,        setToEnd]        = useState('')
+  const [toMsg,        setToMsg]        = useState('')
 
-  const { absentIds, loading, synced, toggle } = useRealtimeAttendance(selectedUser)
+  const { absentIds, loading, synced, toggle, vacationMap, bookTimeOff, cancelTimeOff, savePinToDb, loadPinFromDb } = useRealtimeAttendance(selectedUser)
 
   // Live clock
   useEffect(() => {
@@ -816,7 +939,9 @@ export default function Home() {
                 <button onClick={()=>{
                   if (newPin.length!==4){setPinSetMsg('PIN must be 4 digits');return}
                   if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
-                  setPin(currentUser.id, newPin)
+                  savePinToDb(currentUser.id, newPin).then(()=>{
+                  if (typeof window!=='undefined') localStorage.setItem(`pin_${currentUser.id}`, newPin)
+                })
                   setPinSetMsg('✓ PIN updated successfully!')
                   setTimeout(()=>setShowSetPin(false),1500)
                 }}
@@ -831,6 +956,117 @@ export default function Home() {
         </div>
       )}
 
+
+          {/* Schedule Time Off */}
+          <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
+              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+              background:'white',color:'#6b7280'}}>
+            📅 {showTimeOff ? 'Close' : 'Schedule time off'}
+          </button>
+
+          {showTimeOff && (
+            <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
+              borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+              <div style={{fontSize:'13px',fontWeight:'600',marginBottom:'12px',color:'#374151'}}>
+                📅 Schedule time off
+              </div>
+
+              {/* Existing time off */}
+              {(vacationMap[currentUser.id]||[]).length > 0 && (
+                <div style={{marginBottom:'12px'}}>
+                  <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
+                    textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'6px'}}>
+                    Upcoming time off
+                  </div>
+                  {(vacationMap[currentUser.id]||[]).map(v=>(
+                    <div key={v.id} style={{display:'flex',alignItems:'center',
+                      justifyContent:'space-between',padding:'6px 10px',
+                      background:'#eff6ff',borderRadius:'6px',border:'1px solid #bfdbfe',
+                      marginBottom:'4px',fontSize:'12px'}}>
+                      <span style={{color:'#1d4ed8',fontFamily:'monospace'}}>
+                        📅 {v.start} → {v.end}
+                      </span>
+                      <button onClick={()=>cancelTimeOff(v.id,currentUser.id,v.start,v.end)}
+                        style={{background:'#fee2e2',border:'1px solid #fca5a5',
+                          borderRadius:'4px',padding:'2px 8px',fontSize:'11px',
+                          color:'#dc2626',cursor:'pointer'}}>
+                        Cancel
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Date range picker */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                <div>
+                  <div style={{fontSize:'11px',color:'#9ca3af',marginBottom:'4px',
+                    fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                    From
+                  </div>
+                  <input type="date" value={toStart} min={getToday()}
+                    onChange={e=>{setToStart(e.target.value);setToMsg('')}}
+                    style={{width:'100%',padding:'8px',borderRadius:'8px',
+                      border:'1px solid #e5e7eb',fontSize:'12px',
+                      background:'white',cursor:'pointer'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:'11px',color:'#9ca3af',marginBottom:'4px',
+                    fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                    To
+                  </div>
+                  <input type="date" value={toEnd} min={toStart||getToday()}
+                    onChange={e=>{setToEnd(e.target.value);setToMsg('')}}
+                    style={{width:'100%',padding:'8px',borderRadius:'8px',
+                      border:'1px solid #e5e7eb',fontSize:'12px',
+                      background:'white',cursor:'pointer'}}/>
+                </div>
+              </div>
+
+              {/* Preview */}
+              {toStart && toEnd && toStart<=toEnd && (
+                <div style={{padding:'8px 10px',background:'#eff6ff',borderRadius:'6px',
+                  border:'1px solid #bfdbfe',fontSize:'12px',color:'#1d4ed8',
+                  marginBottom:'8px',fontFamily:'monospace'}}>
+                  📅 {toStart} → {toEnd}&nbsp;·&nbsp;
+                  {Math.round((new Date(toEnd).getTime()-new Date(toStart).getTime())/86400000)+1} day(s)
+                </div>
+              )}
+
+              {toMsg && (
+                <div style={{padding:'6px 10px',borderRadius:'6px',fontSize:'12px',
+                  marginBottom:'8px',textAlign:'center',
+                  background:toMsg.includes('✓')?'#f0fdf4':'#fef2f2',
+                  color:toMsg.includes('✓')?'#16a34a':'#dc2626',
+                  border:`1px solid ${toMsg.includes('✓')?'#86efac':'#fca5a5'}`}}>
+                  {toMsg}
+                </div>
+              )}
+
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setShowTimeOff(false)}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',
+                    border:'1px solid #e5e7eb',background:'white',
+                    cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
+                  Cancel
+                </button>
+                <button onClick={async()=>{
+                  if (!toStart||!toEnd){setToMsg('Select both dates');return}
+                  if (toStart>toEnd){setToMsg('End date must be after start');return}
+                  setToMsg('Saving...')
+                  await bookTimeOff(currentUser.id, toStart, toEnd)
+                  setToMsg('✓ Time off scheduled!')
+                  setTimeout(()=>{setShowTimeOff(false);setToStart('');setToEnd('')},1500)
+                }}
+                  style={{flex:2,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',
+                    fontSize:'12px',fontWeight:'600'}}>
+                  Confirm time off
+                </button>
+              </div>
+            </div>
+          )}
       {/* MY STATUS — DCs */}
       {currentUser?.role==='DC' && myPod && rotation?.[myPod] && (
         <div style={{background:'white',borderRadius:'12px',
@@ -946,7 +1182,9 @@ export default function Home() {
                 <button onClick={()=>{
                   if (newPin.length!==4){setPinSetMsg('PIN must be 4 digits');return}
                   if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
-                  setPin(currentUser.id, newPin)
+                  savePinToDb(currentUser.id, newPin).then(()=>{
+                  if (typeof window!=='undefined') localStorage.setItem(`pin_${currentUser.id}`, newPin)
+                })
                   setPinSetMsg('✓ PIN updated successfully!')
                   setTimeout(()=>setShowSetPin(false),1500)
                 }}
@@ -961,6 +1199,117 @@ export default function Home() {
         </div>
       )}
 
+
+          {/* Schedule Time Off */}
+          <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+            style={{width:'100%',padding:'8px',borderRadius:'8px',marginTop:'6px',
+              border:'1px solid #e5e7eb',fontWeight:'500',fontSize:'12px',cursor:'pointer',
+              background:'white',color:'#6b7280'}}>
+            📅 {showTimeOff ? 'Close' : 'Schedule time off'}
+          </button>
+
+          {showTimeOff && (
+            <div style={{marginTop:'10px',padding:'14px',background:'#f9fafb',
+              borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+              <div style={{fontSize:'13px',fontWeight:'600',marginBottom:'12px',color:'#374151'}}>
+                📅 Schedule time off
+              </div>
+
+              {/* Existing time off */}
+              {(vacationMap[currentUser.id]||[]).length > 0 && (
+                <div style={{marginBottom:'12px'}}>
+                  <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
+                    textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'6px'}}>
+                    Upcoming time off
+                  </div>
+                  {(vacationMap[currentUser.id]||[]).map(v=>(
+                    <div key={v.id} style={{display:'flex',alignItems:'center',
+                      justifyContent:'space-between',padding:'6px 10px',
+                      background:'#eff6ff',borderRadius:'6px',border:'1px solid #bfdbfe',
+                      marginBottom:'4px',fontSize:'12px'}}>
+                      <span style={{color:'#1d4ed8',fontFamily:'monospace'}}>
+                        📅 {v.start} → {v.end}
+                      </span>
+                      <button onClick={()=>cancelTimeOff(v.id,currentUser.id,v.start,v.end)}
+                        style={{background:'#fee2e2',border:'1px solid #fca5a5',
+                          borderRadius:'4px',padding:'2px 8px',fontSize:'11px',
+                          color:'#dc2626',cursor:'pointer'}}>
+                        Cancel
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Date range picker */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                <div>
+                  <div style={{fontSize:'11px',color:'#9ca3af',marginBottom:'4px',
+                    fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                    From
+                  </div>
+                  <input type="date" value={toStart} min={getToday()}
+                    onChange={e=>{setToStart(e.target.value);setToMsg('')}}
+                    style={{width:'100%',padding:'8px',borderRadius:'8px',
+                      border:'1px solid #e5e7eb',fontSize:'12px',
+                      background:'white',cursor:'pointer'}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:'11px',color:'#9ca3af',marginBottom:'4px',
+                    fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'0.06em'}}>
+                    To
+                  </div>
+                  <input type="date" value={toEnd} min={toStart||getToday()}
+                    onChange={e=>{setToEnd(e.target.value);setToMsg('')}}
+                    style={{width:'100%',padding:'8px',borderRadius:'8px',
+                      border:'1px solid #e5e7eb',fontSize:'12px',
+                      background:'white',cursor:'pointer'}}/>
+                </div>
+              </div>
+
+              {/* Preview */}
+              {toStart && toEnd && toStart<=toEnd && (
+                <div style={{padding:'8px 10px',background:'#eff6ff',borderRadius:'6px',
+                  border:'1px solid #bfdbfe',fontSize:'12px',color:'#1d4ed8',
+                  marginBottom:'8px',fontFamily:'monospace'}}>
+                  📅 {toStart} → {toEnd}&nbsp;·&nbsp;
+                  {Math.round((new Date(toEnd).getTime()-new Date(toStart).getTime())/86400000)+1} day(s)
+                </div>
+              )}
+
+              {toMsg && (
+                <div style={{padding:'6px 10px',borderRadius:'6px',fontSize:'12px',
+                  marginBottom:'8px',textAlign:'center',
+                  background:toMsg.includes('✓')?'#f0fdf4':'#fef2f2',
+                  color:toMsg.includes('✓')?'#16a34a':'#dc2626',
+                  border:`1px solid ${toMsg.includes('✓')?'#86efac':'#fca5a5'}`}}>
+                  {toMsg}
+                </div>
+              )}
+
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setShowTimeOff(false)}
+                  style={{flex:1,padding:'8px',borderRadius:'8px',
+                    border:'1px solid #e5e7eb',background:'white',
+                    cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
+                  Cancel
+                </button>
+                <button onClick={async()=>{
+                  if (!toStart||!toEnd){setToMsg('Select both dates');return}
+                  if (toStart>toEnd){setToMsg('End date must be after start');return}
+                  setToMsg('Saving...')
+                  await bookTimeOff(currentUser.id, toStart, toEnd)
+                  setToMsg('✓ Time off scheduled!')
+                  setTimeout(()=>{setShowTimeOff(false);setToStart('');setToEnd('')},1500)
+                }}
+                  style={{flex:2,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',
+                    fontSize:'12px',fontWeight:'600'}}>
+                  Confirm time off
+                </button>
+              </div>
+            </div>
+          )}
       {/* TABS */}
       <div style={{display:'flex',gap:'4px',background:'#f3f4f6',padding:'4px',
         borderRadius:'8px',marginBottom:'12px'}}>
@@ -1210,8 +1559,14 @@ export default function Home() {
                       </div>
                       <div>
                         <div style={{fontSize:'12px',fontWeight:'600',
-                          textDecoration:out?'line-through':'none',opacity:out?0.5:1}}>
+                          textDecoration:out?'line-through':'none',opacity:out?0.5:1,
+                          display:'flex',alignItems:'center',gap:'4px'}}>
                           {m.name}
+                          {(vacationMap[m.id]||[]).length>0 && (
+                            <span style={{fontSize:'9px',background:'#eff6ff',
+                              color:'#1d4ed8',padding:'1px 4px',borderRadius:'3px',
+                              border:'1px solid #bfdbfe'}}>📅 off</span>
+                          )}
                         </div>
                         <div style={{fontSize:'10px',color:'#9ca3af'}}>{m.pod||role}</div>
                       </div>
@@ -1224,7 +1579,8 @@ export default function Home() {
                       {isLead && (
                         <button onClick={(e)=>{
                           e.stopPropagation()
-                          setPin(m.id, DEFAULT_PIN)
+                          savePinToDb(m.id, DEFAULT_PIN)
+                          if(typeof window!=='undefined')localStorage.removeItem(`pin_${m.id}`)
                           alert(`PIN for ${m.name} reset to 0000`)
                         }}
                           style={{marginLeft:'4px',padding:'1px 6px',borderRadius:'4px',
