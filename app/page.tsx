@@ -1140,7 +1140,7 @@ export default function Home() {
                   const sessions = buildSessions(personA,personB,block.startMin,block.durHrs)
                   const activeIdx = bAlert?.sessionIndex??-1
                   return (
-                    <div key={i} style={{background:'white',borderRadius:'12px',
+                    <div key={i} style={{borderRadius:'12px',
                       border:`1.5px solid ${isActive?info.dot:'#e5e7eb'}`,
                       overflow:'hidden',marginBottom:'8px',
                       background:isActive?`${info.dot}08`:'white'}}>
