@@ -547,7 +547,7 @@ export default function Home() {
   if (!loggedIn) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',
       minHeight:'100vh',flexDirection:'column',fontFamily:'system-ui',
-      background:'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)',
+      background:'linear-gradient(135deg,#dbeafe 0%,#bfdbfe 50%,#dbeafe 100%)',
       padding:'20px',position:'relative'}}>
       <RobotBg/>
       <div style={{background:'white',padding:'32px',borderRadius:'16px',
@@ -555,7 +555,7 @@ export default function Home() {
         position:'relative',zIndex:1}}>
 
         {!pinStep ? (
-          <>
+          <div>
             <div style={{textAlign:'center',marginBottom:'24px'}}>
               <div style={{display:'inline-flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
                 <div style={{width:'10px',height:'10px',borderRadius:'50%',
@@ -568,7 +568,9 @@ export default function Home() {
               </div>
             </div>
             <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
-              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your shift</div>
+              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>
+              Your shift
+            </div>
             <div style={{display:'flex',gap:'8px',marginBottom:'16px'}}>
               {[1,2].map(s=>(
                 <button key={s} onClick={()=>setShift(s as 1|2)}
@@ -577,12 +579,14 @@ export default function Home() {
                     borderColor:shift===s?'#3b82f6':'#e5e7eb',
                     background:shift===s?'#eff6ff':'white',
                     color:shift===s?'#1d4ed8':'#374151'}}>
-                  {s===1?'1st Shift · 7AM-3PM':'2nd Shift · 10AM-6PM'}
+                  {s===1?'1st Shift - 7AM-3PM':'2nd Shift - 10AM-6PM'}
                 </button>
               ))}
             </div>
             <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
-              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>Your name</div>
+              textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'8px'}}>
+              Your name
+            </div>
             <select value={selectedUser||''} onChange={e=>setSelectedUser(e.target.value)}
               style={{width:'100%',padding:'11px 12px',borderRadius:'10px',
                 border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'12px',
@@ -596,8 +600,8 @@ export default function Home() {
             </select>
             <div style={{padding:'10px 14px',background:'#fffbeb',borderRadius:'8px',
               border:'1px solid #fde68a',fontSize:'12px',color:'#92400e',
-              marginBottom:'16px',display:'flex',gap:'8px'}}>
-              <span>Cutoff: {shift===1?'6:30 AM':'9:30 AM'} - mark absent before this time</span>
+              marginBottom:'16px'}}>
+              Cutoff: {shift===1?'6:30 AM':'9:30 AM'} - mark absent before this time
             </div>
             <button
               disabled={!selectedUser}
@@ -609,9 +613,9 @@ export default function Home() {
                 cursor:selectedUser?'pointer':'default'}}>
               Continue
             </button>
-          </>
+          </div>
         ) : (
-          <>
+          <div>
             <button onClick={()=>{setPinStep(false);setPinInput('');setPinError('')}}
               style={{background:'none',border:'none',cursor:'pointer',
                 fontSize:'13px',color:'#6b7280',marginBottom:'16px',padding:'0',display:'block'}}>
@@ -626,9 +630,9 @@ export default function Home() {
               {isGuest(selectedUser) ? (
                 <div style={{marginTop:'8px',padding:'6px 12px',background:'#eff6ff',
                   borderRadius:'8px',border:'1px solid #bfdbfe',fontSize:'11px',color:'#1d4ed8'}}>
-                  Observer PIN: <strong>1234</strong>
+                  Observer PIN: 1234
                 </div>
-              ) : getPin(selectedUser||'') === DEFAULT_PIN ? (
+              ) : getPin(selectedUser||'')===DEFAULT_PIN ? (
                 <div style={{marginTop:'8px',padding:'6px 12px',background:'#fffbeb',
                   borderRadius:'8px',border:'1px solid #fde68a',fontSize:'11px',color:'#92400e'}}>
                   Default PIN is 0000
@@ -660,7 +664,7 @@ export default function Home() {
                       setPinInput(next)
                       setPinError('')
                       if (next.length===4) {
-                        const correct = getPin(selectedUser||'')
+                        const correct=getPin(selectedUser||'')
                         if (next===correct) {
                           setPinInput(''); setPinStep(false); setPinAttempts(0); setLoggedIn(true)
                         } else {
@@ -690,133 +694,9 @@ export default function Home() {
                 Locked - Contact your shift lead to reset
               </div>
             )}
-          </>
+          </div>
         )}
-      </div>
-    </div>
-  )
 
-
-  // ── PIN ENTRY SCREEN ─────────────────────────────────────────────────────────
-  if (!loggedIn && pinStep && selectedUser) {
-    const user = ALL_PEOPLE.find(m=>m.id===selectedUser)
-    const isDefault = isDefaultPin(selectedUser)
-    const lockRemaining = pinLockUntil ? Math.ceil((pinLockUntil - Date.now()) / 1000) : 0
-
-    const handlePinDigit = (digit: string) => {
-      if (pinLocked && Date.now() < (pinLockUntil||0)) return
-      if (pinLocked) { setPinLocked(false); setPinAttempts(0) }
-      const next = (pinInput + digit).slice(0, 4)
-      setPinInput(next)
-      setPinError('')
-      if (next.length === 4) {
-        if (next === getPin(selectedUser)) {
-          setPinInput(''); setPinStep(false); setPinAttempts(0)
-          setLoggedIn(true)
-        } else {
-          const attempts = pinAttempts + 1
-          setPinAttempts(attempts)
-          if (attempts >= 3) {
-            setPinLocked(true)
-            setPinLockUntil(Date.now() + 5 * 60 * 1000)
-            setPinError('Too many attempts. Locked for 5 minutes.')
-          } else {
-            setPinError(`Incorrect PIN. ${3 - attempts} attempt${3-attempts===1?'':'s'} remaining.`)
-          }
-          setTimeout(() => setPinInput(''), 600)
-        }
-      }
-    }
-
-    const handlePinDelete = () => {
-      setPinInput(p => p.slice(0, -1))
-      setPinError('')
-    }
-
-    return (
-      <div style={{display:'flex',alignItems:'center',justifyContent:'center',
-        minHeight:'100vh',flexDirection:'column',fontFamily:'system-ui',
-        background:"linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #dbeafe 100%)",
-        padding:'20px',position:'relative'}}>
-        <RobotBg/>
-        <div style={{background:'white',padding:'32px',borderRadius:'16px',
-          boxShadow:'0 4px 24px rgba(0,0,0,0.08)',width:'100%',maxWidth:'360px',
-          position:'relative',zIndex:1}}>
-
-          {/* Back button */}
-          <button onClick={()=>{setPinStep(false);setPinInput('');setPinError('')}}
-            style={{background:'none',border:'none',cursor:'pointer',
-              fontSize:'13px',color:'#6b7280',marginBottom:'16px',padding:'0',
-              display:'flex',alignItems:'center',gap:'4px'}}>
-            ← Back
-          </button>
-
-          <div style={{textAlign:'center',marginBottom:'24px'}}>
-            <div style={{width:'56px',height:'56px',borderRadius:'50%',
-              background:'#eff6ff',border:'2px solid #3b82f6',
-              display:'flex',alignItems:'center',justifyContent:'center',
-              margin:'0 auto 12px',fontSize:'20px'}}>
-              🔐
-            </div>
-            <div style={{fontSize:'18px',fontWeight:'700',marginBottom:'4px'}}>
-              Enter your PIN
-            </div>
-            <div style={{fontSize:'13px',color:'#6b7280'}}>
-              {user?.name}
-            </div>
-            {isDefault && (
-              <div style={{marginTop:'8px',padding:'6px 12px',background:'#fffbeb',
-                borderRadius:'8px',border:'1px solid #fde68a',fontSize:'11px',
-                color:'#92400e'}}>
-                Default PIN is <strong>0000</strong> — change it after logging in
-              </div>
-            )}
-          </div>
-
-          {/* PIN dots */}
-          <div style={{display:'flex',justifyContent:'center',gap:'16px',marginBottom:'24px'}}>
-            {[0,1,2,3].map(i=>(
-              <div key={i} style={{width:'16px',height:'16px',borderRadius:'50%',
-                background: pinInput.length > i
-                  ? pinError ? '#ef4444' : '#3b82f6'
-                  : '#e5e7eb',
-                transition:'background 0.15s'}}/>
-            ))}
-          </div>
-
-          {/* Error message */}
-          {pinError && (
-            <div style={{padding:'8px 12px',background:'#fef2f2',borderRadius:'8px',
-              border:'1px solid #fca5a5',fontSize:'12px',color:'#dc2626',
-              textAlign:'center',marginBottom:'16px'}}>
-              {pinError}
-            </div>
-          )}
-
-          {/* Numpad */}
-          {!pinLocked && (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
-              {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d,i)=>(
-                <button key={i} onClick={()=>d==='⌫'?handlePinDelete():d&&handlePinDigit(d)}
-                  disabled={!d}
-                  style={{padding:'16px',borderRadius:'12px',fontSize:'18px',
-                    fontWeight:'600',cursor:d?'pointer':'default',
-                    border:`1px solid ${d?'#e5e7eb':'transparent'}`,
-                    background: d==='⌫'?'#fef2f2': d?'white':'transparent',
-                    color: d==='⌫'?'#dc2626':'#374151',
-                    transition:'all 0.1s'}}>
-                  {d}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {pinLocked && (
-            <div style={{textAlign:'center',padding:'20px',color:'#dc2626',
-              fontSize:'13px'}}>
-              🔒 Account locked · Contact your shift lead to reset
-            </div>
-          )}
       </div>
     </div>
   )
