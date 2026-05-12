@@ -36,7 +36,6 @@ const ROSTER = {
     {id:'ms',  name:'Michael Soebroto',     role:'DC',   shift:2, pod:'PC'},
     {id:'lv',  name:'Lavanya',              role:'DC',   shift:2, pod:'PC'},
     {id:'lf',  name:'Lucca F',             role:'DC',   shift:2, pod:'PD'},
-    {id:'tc',  name:'Tracy Corleone',       role:'DA',   shift:2, pod:null},
     {id:'as2', name:'Aarushi Sharma',       role:'DA',   shift:2, pod:null},
     {id:'jc',  name:'Julian Cruz',          role:'DA',   shift:2, pod:null},
     {id:'al',  name:'Aaliyah',              role:'DA',   shift:2, pod:null},
@@ -1207,12 +1206,105 @@ export default function Home() {
             </div>
             <button onClick={()=>toggle(currentUser.id,currentUser.id)}
               style={{width:'100%',padding:'10px',borderRadius:'8px',border:'1px solid',
-                fontWeight:'600',fontSize:'13px',cursor:'pointer',
+                fontWeight:'600',fontSize:'13px',cursor:'pointer',marginBottom:'8px',
                 borderColor:absentIds.has(currentUser.id)?'#a5f3fc':'#fca5a5',
                 background:absentIds.has(currentUser.id)?'#ecfeff':'#fef2f2',
                 color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
               {absentIds.has(currentUser.id)?'Mark myself PRESENT':'I will be OUT today'}
             </button>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>{setShowSetPin(v=>!v);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+                style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                  background:'white',fontSize:'11px',cursor:'pointer',color:'#6b7280'}}>
+                Change PIN
+              </button>
+              <button onClick={()=>{setShowTimeOff(v=>!v);setToStart('');setToEnd('');setToMsg('')}}
+                style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                  background:'white',fontSize:'11px',cursor:'pointer',color:'#6b7280'}}>
+                Schedule Time Off
+              </button>
+            </div>
+            {showSetPin && (
+              <div style={{marginTop:'10px',padding:'12px',background:'#f9fafb',
+                borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+                <div style={{fontSize:'12px',fontWeight:'600',marginBottom:'8px'}}>Set new 4-digit PIN</div>
+                <input type="password" maxLength={4} value={newPin}
+                  onChange={e=>setNewPin(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                  placeholder="New PIN" style={{width:'100%',padding:'8px',borderRadius:'8px',
+                    border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'6px',
+                    letterSpacing:'0.3em',textAlign:'center'}}/>
+                <input type="password" maxLength={4} value={newPinConfirm}
+                  onChange={e=>setNewPinConfirm(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                  placeholder="Confirm PIN" style={{width:'100%',padding:'8px',borderRadius:'8px',
+                    border:'1px solid #e5e7eb',fontSize:'13px',marginBottom:'6px',
+                    letterSpacing:'0.3em',textAlign:'center'}}/>
+                {pinSetMsg&&<div style={{fontSize:'12px',color:pinSetMsg.includes('ok')?'#16a34a':'#dc2626',
+                  marginBottom:'6px',textAlign:'center'}}>{pinSetMsg}</div>}
+                <div style={{display:'flex',gap:'6px'}}>
+                  <button onClick={()=>setShowSetPin(false)}
+                    style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                      background:'white',cursor:'pointer',fontSize:'11px',color:'#6b7280'}}>Cancel</button>
+                  <button onClick={()=>{
+                    if (newPin.length!==4){setPinSetMsg('Must be 4 digits');return}
+                    if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
+                    setPin(currentUser.id,newPin); setPinSetMsg('PIN updated ok!')
+                    setTimeout(()=>setShowSetPin(false),1500)
+                  }} style={{flex:1,padding:'7px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+            {showTimeOff && (
+              <div style={{marginTop:'10px',padding:'12px',background:'#f9fafb',
+                borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+                <div style={{fontSize:'12px',fontWeight:'600',marginBottom:'10px'}}>Schedule Time Off</div>
+                {(vacationMap[currentUser.id]||[]).map(v=>(
+                  <div key={v.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+                    padding:'6px 10px',background:'#eff6ff',borderRadius:'6px',
+                    marginBottom:'6px',fontSize:'12px'}}>
+                    <span style={{color:'#1d4ed8',fontFamily:'monospace'}}>{v.start} to {v.end}</span>
+                    <button onClick={()=>cancelTimeOff(v.id,currentUser.id,v.start,v.end)}
+                      style={{background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:'4px',
+                        padding:'2px 8px',fontSize:'11px',color:'#dc2626',cursor:'pointer'}}>Cancel</button>
+                  </div>
+                ))}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <div>
+                    <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>From</div>
+                    <input type="date" value={toStart} min={getToday()}
+                      onChange={e=>{setToStart(e.target.value);setToMsg('')}}
+                      style={{width:'100%',padding:'7px',borderRadius:'8px',
+                        border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>To</div>
+                    <input type="date" value={toEnd} min={toStart||getToday()}
+                      onChange={e=>{setToEnd(e.target.value);setToMsg('')}}
+                      style={{width:'100%',padding:'7px',borderRadius:'8px',
+                        border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                  </div>
+                </div>
+                {toMsg&&<div style={{fontSize:'12px',textAlign:'center',marginBottom:'6px',
+                  color:toMsg.includes('ok')?'#16a34a':'#dc2626'}}>{toMsg}</div>}
+                <div style={{display:'flex',gap:'6px'}}>
+                  <button onClick={()=>setShowTimeOff(false)}
+                    style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                      background:'white',cursor:'pointer',fontSize:'11px',color:'#6b7280'}}>Cancel</button>
+                  <button onClick={async()=>{
+                    if (!toStart||!toEnd){setToMsg('Select both dates');return}
+                    if (toStart>toEnd){setToMsg('End must be after start');return}
+                    setToMsg('Saving...')
+                    await bookTimeOff(currentUser.id,toStart,toEnd)
+                    setToMsg('Time off scheduled ok!'); setTimeout(()=>setShowTimeOff(false),1500)
+                  }} style={{flex:2,padding:'7px',borderRadius:'8px',border:'none',
+                    background:'#3b82f6',color:'white',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
