@@ -25,6 +25,8 @@ const ROSTER = {
     {id:'ht', name:'Huiying Tan',     role:'DA',   shift:1, pod:null},
     {id:'sw', name:'Sang Woo',        role:'DA',   shift:1, pod:null},
     {id:'yban', name:'Yban Nieto', role:'SUPER_ADMIN', shift:1, pod:null},
+    {id:'jb', name:'James Baase', role:'ANALYTICS_ADMIN', shift:1, pod:null},
+    {id:'cs', name:'Charlene Shong', role:'ANALYTICS_ADMIN', shift:1, pod:null},
     {id:'guest', name:'Guest / Observer', role:'GUEST', shift:1, pod:null},
   ],
   s2: [
@@ -42,6 +44,8 @@ const ROSTER = {
     {id:'rrp', name:'Rathinapriya Ramjagan',role:'DA',   shift:2, pod:null},
     {id:'rr',  name:'Rashila Ravichandran', role:'LEAD', shift:2, pod:null},
     {id:'yban2', name:'Yban Nieto', role:'SUPER_ADMIN', shift:2, pod:null},
+    {id:'jb2', name:'James Baase', role:'ANALYTICS_ADMIN', shift:2, pod:null},
+    {id:'cs2', name:'Charlene Shong', role:'ANALYTICS_ADMIN', shift:2, pod:null},
     {id:'guest2',name:'Guest / Observer',   role:'GUEST',shift:2, pod:null},
   ]
 }
@@ -88,11 +92,16 @@ const ROTATION_S2: Record<string,Record<string,[string,string,string,string]>> =
 
 // ─── PIN HELPERS ─────────────────────────────────────────────────────────────
 const DEFAULT_PIN = '0000'
+const PROTECTED_PINS: Record<string,string> = { jb:'0101', jb2:'0101', cs:'9999', cs2:'9999' }
 function getPin(staffId: string): string {
   if (staffId==='guest'||staffId==='guest2') return '1234'
   if (staffId==='yban'||staffId==='yban2') {
     if (typeof window==='undefined') return '20131990'
     return localStorage.getItem(`pin_${staffId}`)||'20131990'
+  }
+  if (PROTECTED_PINS[staffId]) {
+    if (typeof window==='undefined') return PROTECTED_PINS[staffId]
+    return localStorage.getItem(`pin_${staffId}`)||PROTECTED_PINS[staffId]
   }
   if (typeof window==='undefined') return DEFAULT_PIN
   return localStorage.getItem(`pin_${staffId}`)||DEFAULT_PIN
@@ -107,6 +116,9 @@ function isGuest(staffId: string|null): boolean {
 }
 function isSuperAdmin(staffId: string|null): boolean {
   return staffId==='yban'||staffId==='yban2'
+}
+function isAnalyticsAdmin(staffId: string|null): boolean {
+  return staffId==='yban'||staffId==='yban2'||staffId==='jb'||staffId==='jb2'||staffId==='cs'||staffId==='cs2'
 }
 function canManageStations(staffId: string|null): boolean {
   return ['kw','ah','dg','rr','yban','yban2'].includes(staffId||'')
@@ -337,8 +349,9 @@ function useRealtimeAttendance() {
     if (start<=today&&today<=end) setAbsentIds(prev=>{ const n=new Set(prev); n.delete(staffId); return n })
   },[today, supabase])
 
-  const toggleStation = useCallback(async(stationId: string)=>{
+  const toggleStation = useCallback(async(stationId: string, actorId?: string)=>{
     const next = new Set(disabledStations)
+    const action = next.has(stationId) ? 'enabled' : 'disabled'
     if (next.has(stationId)) next.delete(stationId)
     else next.add(stationId)
     setDisabledStations(next)
@@ -348,6 +361,10 @@ function useRealtimeAttendance() {
         {config_key:'disabled_stations', config_value:JSON.stringify(Array.from(next)), updated_at:new Date().toISOString()},
         {onConflict:'config_key'}
       )
+      // Log the action
+      await supabase.from('station_logs').insert({
+        station_id:stationId, action, actioned_by:actorId||'unknown', actioned_at:new Date().toISOString()
+      })
     } catch(e){ console.error('toggleStation error:',e) }
   },[disabledStations, supabase])
 
@@ -377,11 +394,44 @@ export default function Home() {
   const [toMsg,         setToMsg]        = useState('')
 
   const {absentIds,loading,synced,toggle,vacationMap,bookTimeOff,cancelTimeOff,disabledStations,toggleStation} = useRealtimeAttendance()
+  const [adhocTasks, setAdhocTasks] = useState<any[]>([])
+  const [showAdhocForm, setShowAdhocForm] = useState(false)
+  const [adhocName, setAdhocName] = useState('')
+  const [adhocDesc, setAdhocDesc] = useState('')
+  const [adhocStartDate, setAdhocStartDate] = useState('')
+  const [adhocStartTime, setAdhocStartTime] = useState('')
+  const [adhocEndDate, setAdhocEndDate] = useState('')
+  const [adhocEndTime, setAdhocEndTime] = useState('')
+  const [adhocStaffId, setAdhocStaffId] = useState('')
+  const [adhocMsg, setAdhocMsg] = useState('')
+  const [adhocPendingConfirm, setAdhocPendingConfirm] = useState<any|null>(null)
+  const [loginStats, setLoginStats] = useState<any[]>([])
+  const [stationLogs, setStationLogs] = useState<any[]>([])
+  const [analyticsTab, setAnalyticsTab] = useState<'hours'|'timeoff'|'logins'|'stations'>('hours')
   const [overrides, setOverrides] = useState<Record<string,string>>({})
   const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
   const [showReassign, setShowReassign] = useState<string|null>(null)
 
   useEffect(()=>{ const t=setInterval(()=>setClock(getClockTime()),1000); return ()=>clearInterval(t) },[])
+
+  // Load adhoc tasks, login stats, station logs on login
+  useEffect(()=>{
+    if (!loggedIn) return
+    const sb = getSupabase()
+    if (!sb) return
+    sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false}).then(({data})=>{ if(data) setAdhocTasks(data) })
+    if (isAnalyticsAdmin(selectedUser)) {
+      sb.from('login_logs').select('*').order('logged_in_at',{ascending:false}).then(({data})=>{ if(data) setLoginStats(data) })
+      sb.from('station_logs').select('*').order('actioned_at',{ascending:false}).then(({data})=>{ if(data) setStationLogs(data) })
+    }
+    // Check for pending adhoc tasks for this user
+    sb.from('adhoc_tasks').select('*').eq('status','pending_confirmation').then(({data})=>{
+      if (data && data.length>0) {
+        const mine = data.find((t:any)=>t.staff_id===selectedUser||(isLead&&true))
+        if (mine) setAdhocPendingConfirm(mine)
+      }
+    })
+  },[loggedIn, selectedUser])
 
   const pool       = ROSTER[`s${shift}` as 's1'|'s2']
   const dayIdx     = getDayIndex()
@@ -669,6 +719,9 @@ export default function Home() {
                       if (next.length===correct.length){
                         if (next===correct){
                           setPinInput('');setPinStep(false);setPinAttempts(0);setLoggedIn(true)
+                          // Log login
+                          const sb = getSupabase()
+                          if (sb) sb.from('login_logs').insert({staff_id:selectedUser||'',shift,logged_in_at:new Date().toISOString()}).then(()=>{})
                         } else {
                           const att=pinAttempts+1; setPinAttempts(att)
                           if (att>=3){setPinLocked(true);setPinLockUntil(Date.now()+300000);setPinError('Too many attempts. Locked 5 min.')}
@@ -701,15 +754,17 @@ export default function Home() {
   // ── MAIN DASHBOARD ────────────────────────────────────────────────────────
   const isLead = currentUser?.role==='LEAD' || currentUser?.role==='SUPER_ADMIN'
   const isGuest2 = isGuest(selectedUser)
-  const tabs = currentUser?.role==='SUPER_ADMIN'
-    ? ['team','roster','timeoff','rotation']
+  const tabs = isAnalyticsAdmin(selectedUser)
+    ? ['team','roster','timeoff','adhoc','rotation','analytics']
+    : currentUser?.role==='SUPER_ADMIN'
+    ? ['team','roster','timeoff','adhoc','rotation']
     : isLead
-    ? ['mine','team','roster','timeoff','rotation']
-    : ['mine','team','roster','rotation']
+    ? ['mine','team','roster','timeoff','adhoc','rotation']
+    : ['mine','team','roster','adhoc','rotation']
 
   const tabLabels: Record<string,string> = {
     mine:'My Schedule', team:'Team Schedule', roster:'Roster',
-    timeoff:'Time Off', rotation:'Rotation'
+    timeoff:'Time Off', adhoc:'Adhoc Tasks', rotation:'Rotation', analytics:'Analytics'
   }
 
   const nowMin = new Date().getHours()*60+new Date().getMinutes()
@@ -960,6 +1015,66 @@ export default function Home() {
           </div>
         )}
 
+
+        {/* ANALYTICS ADMIN CARD */}
+        {(currentUser?.role==='ANALYTICS_ADMIN') && (
+          <div style={{background:'white',borderRadius:'12px',border:'2px solid #6ee7b7',
+            padding:'16px',marginBottom:'12px'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+              <div>
+                <div style={{fontWeight:'700',fontSize:'15px'}}>{currentUser.name}</div>
+                <div style={{fontSize:'11px',color:'#059669',fontFamily:'monospace',fontWeight:'600'}}>
+                  Analytics Observer · Read-only
+                </div>
+              </div>
+              <span style={{padding:'4px 12px',borderRadius:'99px',fontSize:'11px',fontWeight:'700',
+                background:'#d1fae5',color:'#059669',fontFamily:'monospace'}}>OBSERVER</span>
+            </div>
+            <div style={{padding:'8px 12px',background:'#d1fae5',borderRadius:'8px',
+              border:'1px solid #6ee7b7',fontSize:'12px',color:'#059669',marginBottom:'10px'}}>
+              You have read-only access to all schedules, time off, adhoc tasks, and the analytics dashboard.
+            </div>
+            <button onClick={()=>{setShowSetPin(v=>!v);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
+              style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #6ee7b7',
+                background:'#d1fae5',fontSize:'12px',cursor:'pointer',color:'#059669',fontWeight:'600'}}>
+              Change my PIN
+            </button>
+            {showSetPin && (
+              <div style={{marginTop:'10px',padding:'12px',background:'#f0fdf4',
+                borderRadius:'10px',border:'1px solid #6ee7b7'}}>
+                <div style={{fontSize:'12px',fontWeight:'600',marginBottom:'8px',color:'#059669'}}>
+                  Set new 4-digit PIN
+                </div>
+                <input type="password" maxLength={4} value={newPin}
+                  onChange={e=>setNewPin(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                  placeholder="New PIN" style={{width:'100%',padding:'8px',borderRadius:'8px',
+                    border:'1px solid #6ee7b7',fontSize:'13px',marginBottom:'6px',
+                    letterSpacing:'0.3em',textAlign:'center'}}/>
+                <input type="password" maxLength={4} value={newPinConfirm}
+                  onChange={e=>setNewPinConfirm(e.target.value.replace(/[^0-9]/g,'').slice(0,4))}
+                  placeholder="Confirm PIN" style={{width:'100%',padding:'8px',borderRadius:'8px',
+                    border:'1px solid #6ee7b7',fontSize:'13px',marginBottom:'6px',
+                    letterSpacing:'0.3em',textAlign:'center'}}/>
+                {pinSetMsg&&<div style={{fontSize:'12px',color:pinSetMsg.includes('ok')?'#16a34a':'#dc2626',
+                  marginBottom:'6px',textAlign:'center'}}>{pinSetMsg}</div>}
+                <div style={{display:'flex',gap:'6px'}}>
+                  <button onClick={()=>setShowSetPin(false)}
+                    style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #6ee7b7',
+                      background:'white',cursor:'pointer',fontSize:'11px',color:'#059669'}}>Cancel</button>
+                  <button onClick={()=>{
+                    if (newPin.length!==4){setPinSetMsg('Must be 4 digits');return}
+                    if (newPin!==newPinConfirm){setPinSetMsg('PINs do not match');return}
+                    setPin(currentUser.id,newPin); setPinSetMsg('PIN updated ok!')
+                    setTimeout(()=>setShowSetPin(false),1500)
+                  }} style={{flex:1,padding:'7px',borderRadius:'8px',border:'none',
+                    background:'#059669',color:'white',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {/* STATS */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px',marginBottom:'12px'}}>
           {[
@@ -2061,6 +2176,466 @@ export default function Home() {
               <strong>2nd shift (YMC7/G1/UMI):</strong> Block 1 (10AM-12PM) → Block 2 (12-1PM) → Lunch staggered 1-2PM → Block 3 (2-4PM) → Block 4 (4-6PM)<br/>
               <strong>X:</strong> marks cross-training slot in rotation grid · <strong>UMI stations</strong> = 1 person each
             </div>
+          </div>
+        )}
+
+        {/* ── ADHOC TASKS TAB ─────────────────────────────────────────────── */}
+        {tab==='adhoc' && (
+          <div>
+            {/* Pending confirmation banner for leads */}
+            {adhocPendingConfirm && isLead && (
+              <div style={{padding:'14px',background:'#7c3aed',color:'white',borderRadius:'12px',
+                marginBottom:'12px',border:'2px solid #6d28d9'}}>
+                <div style={{fontWeight:'800',fontSize:'14px',marginBottom:'6px'}}>
+                  &#128276; Adhoc Task Confirmation Required
+                </div>
+                <div style={{fontSize:'13px',marginBottom:'8px'}}>
+                  <strong>{ALL_PEOPLE.find(p=>p.id===adhocPendingConfirm.staff_id)?.name}</strong> has requested an adhoc task:
+                  <br/><strong>{adhocPendingConfirm.task_name}</strong>
+                  {adhocPendingConfirm.description && <span> — {adhocPendingConfirm.description}</span>}
+                  <br/>Start: {adhocPendingConfirm.start_date} {adhocPendingConfirm.start_time}
+                  {adhocPendingConfirm.end_date && <span> · End: {adhocPendingConfirm.end_date} {adhocPendingConfirm.end_time}</span>}
+                </div>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={async()=>{
+                    const sb = getSupabase(); if (!sb) return
+                    await sb.from('adhoc_tasks').update({
+                      status:'active', confirmed_by:selectedUser||'',
+                      confirmed_at:new Date().toISOString()
+                    }).eq('id',adhocPendingConfirm.id)
+                    const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                    if (data) setAdhocTasks(data)
+                    setAdhocPendingConfirm(null)
+                  }} style={{flex:1,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#22c55e',color:'white',cursor:'pointer',fontWeight:'700',fontSize:'13px'}}>
+                    ✓ Confirm & Activate
+                  </button>
+                  <button onClick={async()=>{
+                    const sb = getSupabase(); if (!sb) return
+                    await sb.from('adhoc_tasks').update({status:'cancelled'}).eq('id',adhocPendingConfirm.id)
+                    const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                    if (data) setAdhocTasks(data)
+                    setAdhocPendingConfirm(null)
+                  }} style={{flex:1,padding:'8px',borderRadius:'8px',border:'none',
+                    background:'#ef4444',color:'white',cursor:'pointer',fontWeight:'700',fontSize:'13px'}}>
+                    ✗ Reject
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* DC pending confirmation notice */}
+            {adhocPendingConfirm && !isLead && adhocPendingConfirm.staff_id===selectedUser && (
+              <div style={{padding:'12px 14px',background:'#fef3c7',borderRadius:'10px',
+                border:'1px solid #fde68a',marginBottom:'12px',fontSize:'13px',color:'#92400e'}}>
+                &#9203; Your adhoc task <strong>{adhocPendingConfirm.task_name}</strong> is pending lead confirmation.
+                Please verify the start time with your lead before beginning.
+              </div>
+            )}
+
+            {/* Add new adhoc task */}
+            {(isLead || currentUser?.role==='DC' || currentUser?.role==='DA' || currentUser?.role==='SUPER_ADMIN' || currentUser?.role==='ANALYTICS_ADMIN') && (
+              <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',
+                padding:'14px',marginBottom:'12px'}}>
+                <button onClick={()=>setShowAdhocForm(v=>!v)}
+                  style={{width:'100%',padding:'10px',borderRadius:'8px',border:'none',
+                    background:'#7c3aed',color:'white',fontWeight:'700',fontSize:'13px',cursor:'pointer'}}>
+                  {showAdhocForm ? 'Cancel' : '+ New Adhoc Task'}
+                </button>
+                {showAdhocForm && (
+                  <div style={{marginTop:'12px'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Assign to</div>
+                        <select value={adhocStaffId} onChange={e=>setAdhocStaffId(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}>
+                          <option value=''>- select person -</option>
+                          {ALL_PEOPLE.filter(p=>!isGuest(p.id)&&p.role!=='ANALYTICS_ADMIN').map(p=>(
+                            <option key={p.id} value={p.id}>{p.name} — {p.role} Shift {p.shift}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Task name</div>
+                        <input value={adhocName} onChange={e=>setAdhocName(e.target.value)}
+                          placeholder="e.g. Special data collection run"
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Description (optional)</div>
+                        <input value={adhocDesc} onChange={e=>setAdhocDesc(e.target.value)}
+                          placeholder="Additional details..."
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Start date</div>
+                        <input type="date" value={adhocStartDate} onChange={e=>setAdhocStartDate(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Start time</div>
+                        <input type="time" value={adhocStartTime} onChange={e=>setAdhocStartTime(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>End date (optional)</div>
+                        <input type="date" value={adhocEndDate} onChange={e=>setAdhocEndDate(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>End time (optional)</div>
+                        <input type="time" value={adhocEndTime} onChange={e=>setAdhocEndTime(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                    </div>
+                    {adhocMsg&&<div style={{fontSize:'12px',textAlign:'center',marginBottom:'8px',
+                      color:adhocMsg.includes('ok')||adhocMsg.includes('submitted')?'#16a34a':'#dc2626'}}>{adhocMsg}</div>}
+                    <button onClick={async()=>{
+                      if (!adhocStaffId||!adhocName||!adhocStartDate||!adhocStartTime){
+                        setAdhocMsg('Fill in person, task name, start date and time'); return
+                      }
+                      const assignedPerson = ALL_PEOPLE.find(p=>p.id===adhocStaffId)
+                      const isDC = assignedPerson?.role==='DC'||assignedPerson?.role==='DA'
+                      const submitterIsDC = currentUser?.role==='DC'||currentUser?.role==='DA'
+                      // DC assigning themselves must confirm with lead first
+                      if (submitterIsDC && adhocStaffId===selectedUser) {
+                        if (!window.confirm('Please confirm with your shift lead before submitting this adhoc task. Continue?')) return
+                      }
+                      const sb = getSupabase(); if (!sb) return
+                      const status = isLead||isSuperAdmin(selectedUser) ? 'active' : 'pending_confirmation'
+                      const {data:newTask} = await sb.from('adhoc_tasks').insert({
+                        staff_id:adhocStaffId, task_name:adhocName, description:adhocDesc,
+                        start_date:adhocStartDate, start_time:adhocStartTime,
+                        end_date:adhocEndDate||null, end_time:adhocEndTime||null,
+                        submitted_by:selectedUser||'', shift:assignedPerson?.shift||shift,
+                        status, confirmed_by:isLead||isSuperAdmin(selectedUser)?selectedUser||'':null,
+                        confirmed_at:isLead||isSuperAdmin(selectedUser)?new Date().toISOString():null
+                      }).select().single()
+                      if (newTask && status==='pending_confirmation') setAdhocPendingConfirm(newTask)
+                      const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                      if (data) setAdhocTasks(data)
+                      setAdhocMsg(status==='active'?'Adhoc task created ok!':'Submitted — pending lead confirmation')
+                      setTimeout(()=>{setShowAdhocForm(false);setAdhocName('');setAdhocDesc('');setAdhocStartDate('');setAdhocStartTime('');setAdhocEndDate('');setAdhocEndTime('');setAdhocStaffId('');setAdhocMsg('')},2000)
+                    }} style={{width:'100%',padding:'10px',borderRadius:'8px',border:'none',
+                      background:'#7c3aed',color:'white',fontWeight:'700',fontSize:'13px',cursor:'pointer'}}>
+                      Submit Adhoc Task
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Adhoc task list */}
+            <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',padding:'16px'}}>
+              <div style={{fontSize:'14px',fontWeight:'700',marginBottom:'4px'}}>Adhoc Tasks</div>
+              <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'12px'}}>All active and pending tasks</div>
+              {adhocTasks.length===0?(
+                <div style={{textAlign:'center',padding:'32px',color:'#9ca3af',fontSize:'13px'}}>
+                  No adhoc tasks yet
+                </div>
+              ):adhocTasks.map((task:any)=>{
+                const person = ALL_PEOPLE.find(p=>p.id===task.staff_id)
+                const confirmer = task.confirmed_by ? ALL_PEOPLE.find(p=>p.id===task.confirmed_by) : null
+                const statusColor = task.status==='active'?'#16a34a':task.status==='pending_confirmation'?'#f59e0b':task.status==='completed'?'#3b82f6':'#dc2626'
+                const statusBg = task.status==='active'?'#dcfce7':task.status==='pending_confirmation'?'#fef3c7':task.status==='completed'?'#eff6ff':'#fee2e2'
+                return (
+                  <div key={task.id} style={{padding:'12px',borderRadius:'8px',background:'#f9fafb',
+                    border:'1px solid #e5e7eb',marginBottom:'8px'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}}>
+                      <div style={{fontWeight:'700',fontSize:'13px'}}>{task.task_name}</div>
+                      <span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'10px',fontWeight:'700',
+                        background:statusBg,color:statusColor,fontFamily:'monospace',textTransform:'uppercase'}}>
+                        {task.status.replace('_',' ')}
+                      </span>
+                    </div>
+                    <div style={{fontSize:'12px',color:'#374151',marginBottom:'4px'}}>
+                      <strong>Assigned to:</strong> {person?.name||task.staff_id} · Shift {task.shift}
+                    </div>
+                    {task.description&&<div style={{fontSize:'11px',color:'#6b7280',marginBottom:'4px'}}>{task.description}</div>}
+                    <div style={{fontSize:'11px',color:'#6b7280',fontFamily:'monospace'}}>
+                      Start: {task.start_date} {task.start_time}
+                      {task.end_date&&<span> · End: {task.end_date} {task.end_time}</span>}
+                    </div>
+                    <div style={{fontSize:'10px',color:'#9ca3af',marginTop:'4px'}}>
+                      Submitted by {ALL_PEOPLE.find(p=>p.id===task.submitted_by)?.name||task.submitted_by} · {new Date(task.submitted_at).toLocaleString()}
+                      {confirmer&&<span> · Confirmed by {confirmer.name} · {new Date(task.confirmed_at).toLocaleString()}</span>}
+                    </div>
+                    {/* Lead/admin can mark complete or cancel */}
+                    {(isLead||isSuperAdmin(selectedUser))&&task.status==='active'&&(
+                      <div style={{display:'flex',gap:'6px',marginTop:'8px'}}>
+                        <button onClick={async()=>{
+                          const sb=getSupabase();if(!sb)return
+                          await sb.from('adhoc_tasks').update({status:'completed',end_date:getToday(),end_time:new Date().toTimeString().slice(0,5)}).eq('id',task.id)
+                          const {data}=await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                          if(data)setAdhocTasks(data)
+                        }} style={{flex:1,padding:'5px',borderRadius:'6px',border:'1px solid #86efac',
+                          background:'#f0fdf4',color:'#16a34a',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
+                          Mark Complete
+                        </button>
+                        <button onClick={async()=>{
+                          const sb=getSupabase();if(!sb)return
+                          await sb.from('adhoc_tasks').update({status:'cancelled'}).eq('id',task.id)
+                          const {data}=await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                          if(data)setAdhocTasks(data)
+                        }} style={{flex:1,padding:'5px',borderRadius:'6px',border:'1px solid #fca5a5',
+                          background:'#fef2f2',color:'#dc2626',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── ANALYTICS TAB — Yban, James, Charlene only ───────────────────── */}
+        {tab==='analytics' && isAnalyticsAdmin(selectedUser) && (
+          <div>
+            <div style={{display:'flex',gap:'6px',marginBottom:'12px',flexWrap:'wrap'}}>
+              {(['hours','timeoff','logins','stations'] as const).map(t=>(
+                <button key={t} onClick={()=>setAnalyticsTab(t)}
+                  style={{padding:'7px 14px',borderRadius:'8px',cursor:'pointer',
+                    border:'1px solid',fontWeight:'600',fontSize:'11px',textTransform:'uppercase',
+                    borderColor:analyticsTab===t?'#059669':'#e5e7eb',
+                    background:analyticsTab===t?'#d1fae5':'white',
+                    color:analyticsTab===t?'#059669':'#374151'}}>
+                  {t==='hours'?'Station Hours':t==='timeoff'?'Time Off':t==='logins'?'App Usage':'Station Uptime'}
+                </button>
+              ))}
+            </div>
+
+            {/* STATION HOURS PER PERSON PER SHIFT */}
+            {analyticsTab==='hours' && (
+              <div>
+                {[1,2].map(s=>{
+                  const shiftPool = ROSTER[s===1?'s1':'s2']
+                  const rot = s===1?ROTATION_S1:ROTATION_S2
+                  const pods = s===1?['P1','P2','P3','P4']:['PA','PB','PC','PD']
+                  const stationHours: Record<string,Record<string,number>> = {}
+                  pods.forEach(pod=>{
+                    const members = shiftPool.filter(m=>m.pod===pod&&m.role==='DC')
+                    members.forEach(m=>{
+                      if (!stationHours[m.name]) stationHours[m.name]={}
+                      Object.values(rot).forEach(dayRot=>{
+                        const ps = dayRot[pod] as string[]|undefined
+                        if (!ps) return
+                        ps.forEach((stId,idx)=>{
+                          if (!stationHours[m.name][stId]) stationHours[m.name][stId]=0
+                          const hrs = s===1?(idx===2?0.5:2):(idx===0?2:idx===1?1:2)
+                          stationHours[m.name][stId] += hrs/2 // split between 2 pod members
+                        })
+                      })
+                    })
+                  })
+                  return (
+                    <div key={s} style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',
+                      padding:'16px',marginBottom:'12px'}}>
+                      <div style={{fontWeight:'700',fontSize:'14px',marginBottom:'12px',color:'#059669'}}>
+                        Shift {s} — Station Hours per Person (per 8-day cycle)
+                      </div>
+                      <div style={{overflowX:'auto'}}>
+                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+                          <thead>
+                            <tr style={{background:'#f9fafb'}}>
+                              <th style={{padding:'8px',textAlign:'left',border:'1px solid #e5e7eb',color:'#6b7280'}}>Person</th>
+                              {Object.keys(STATION_INFO).filter(id=>STATION_INFO[id].shift===(s===1?'s1':'s2')).map(id=>(
+                                <th key={id} style={{padding:'8px',textAlign:'center',border:'1px solid #e5e7eb',
+                                  color:STATION_INFO[id].dot,fontWeight:'700'}}>
+                                  {STATION_INFO[id].label}
+                                </th>
+                              ))}
+                              <th style={{padding:'8px',textAlign:'center',border:'1px solid #e5e7eb',fontWeight:'700'}}>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(stationHours).map(([name,hrs])=>{
+                              const stIds = Object.keys(STATION_INFO).filter(id=>STATION_INFO[id].shift===(s===1?'s1':'s2'))
+                              const total = Object.values(hrs).reduce((a,b)=>a+b,0)
+                              return (
+                                <tr key={name}>
+                                  <td style={{padding:'8px',border:'1px solid #e5e7eb',fontWeight:'600'}}>{name}</td>
+                                  {stIds.map(id=>(
+                                    <td key={id} style={{padding:'8px',textAlign:'center',border:'1px solid #e5e7eb',
+                                      background:hrs[id]?`${STATION_INFO[id].dot}15`:'transparent'}}>
+                                      {hrs[id]?`${hrs[id].toFixed(1)}h`:'—'}
+                                    </td>
+                                  ))}
+                                  <td style={{padding:'8px',textAlign:'center',border:'1px solid #e5e7eb',
+                                    fontWeight:'700',color:'#059669'}}>{total.toFixed(1)}h</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* TIME OFF PER PERSON */}
+            {analyticsTab==='timeoff' && (
+              <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',padding:'16px'}}>
+                <div style={{fontWeight:'700',fontSize:'14px',marginBottom:'12px',color:'#059669'}}>
+                  Time Off Per Person
+                </div>
+                {[1,2].map(s=>(
+                  <div key={s} style={{marginBottom:'16px'}}>
+                    <div style={{fontSize:'12px',fontWeight:'700',color:'#374151',marginBottom:'8px',
+                      padding:'6px 10px',background:'#f3f4f6',borderRadius:'6px'}}>
+                      Shift {s}
+                    </div>
+                    {ALL_PEOPLE.filter(p=>p.shift===s&&!isGuest(p.id)&&!isSuperAdmin(p.id)&&p.role!=='ANALYTICS_ADMIN').map(p=>{
+                      const entries = vacationMap[p.id]||[]
+                      const totalDays = entries.reduce((sum,v)=>{
+                        return sum+Math.round((new Date(v.end+'T12:00').getTime()-new Date(v.start+'T12:00').getTime())/86400000)+1
+                      },0)
+                      return (
+                        <div key={p.id} style={{display:'flex',alignItems:'center',gap:'10px',
+                          padding:'8px 10px',borderRadius:'8px',background:'#f9fafb',
+                          border:'1px solid #e5e7eb',marginBottom:'4px'}}>
+                          <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:'9px',fontWeight:'700',flexShrink:0,
+                            background:COLORS[p.role]?.[0]||'#f3f4f6',color:COLORS[p.role]?.[1]||'#374151'}}>
+                            {p.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:'12px',fontWeight:'600'}}>{p.name}</div>
+                            <div style={{fontSize:'10px',color:'#6b7280'}}>{p.role}</div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:'13px',fontWeight:'700',color:totalDays>0?'#dc2626':'#9ca3af'}}>
+                              {totalDays} day{totalDays!==1?'s':''}
+                            </div>
+                            <div style={{fontSize:'10px',color:'#9ca3af'}}>{entries.length} request{entries.length!==1?'s':''}</div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* APP USAGE / LOGIN FREQUENCY */}
+            {analyticsTab==='logins' && (
+              <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',padding:'16px'}}>
+                <div style={{fontWeight:'700',fontSize:'14px',marginBottom:'4px',color:'#059669'}}>
+                  App Usage — Login Frequency
+                </div>
+                <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'12px'}}>
+                  How often each person has logged in
+                </div>
+                {loginStats.length===0?(
+                  <div style={{textAlign:'center',padding:'24px',color:'#9ca3af',fontSize:'13px'}}>
+                    No login data yet — data is collected from this point forward
+                  </div>
+                ):(
+                  <div>
+                    {[1,2].map(s=>{
+                      const shiftStats = loginStats.filter((l:any)=>l.shift===s)
+                      if (!shiftStats.length) return null
+                      const byCounts: Record<string,number> = {}
+                      shiftStats.forEach((l:any)=>{ byCounts[l.staff_id]=(byCounts[l.staff_id]||0)+1 })
+                      const sorted = Object.entries(byCounts).sort((a,b)=>b[1]-a[1])
+                      return (
+                        <div key={s} style={{marginBottom:'16px'}}>
+                          <div style={{fontSize:'12px',fontWeight:'700',color:'#374151',marginBottom:'8px',
+                            padding:'6px 10px',background:'#f3f4f6',borderRadius:'6px'}}>Shift {s}</div>
+                          {sorted.map(([staffId,count])=>{
+                            const person = ALL_PEOPLE.find(p=>p.id===staffId)
+                            const maxCount = sorted[0][1]
+                            return (
+                              <div key={staffId} style={{display:'flex',alignItems:'center',gap:'10px',
+                                padding:'6px 10px',marginBottom:'4px'}}>
+                                <div style={{fontSize:'12px',fontWeight:'600',minWidth:'140px'}}>
+                                  {person?.name||staffId}
+                                </div>
+                                <div style={{flex:1,background:'#f3f4f6',borderRadius:'4px',height:'16px',overflow:'hidden'}}>
+                                  <div style={{height:'100%',borderRadius:'4px',background:'#059669',
+                                    width:`${(count/maxCount)*100}%`,transition:'width 0.3s'}}/>
+                                </div>
+                                <div style={{fontSize:'12px',fontWeight:'700',color:'#059669',minWidth:'40px',textAlign:'right'}}>
+                                  {count}x
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* STATION UPTIME */}
+            {analyticsTab==='stations' && (
+              <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',padding:'16px'}}>
+                <div style={{fontWeight:'700',fontSize:'14px',marginBottom:'4px',color:'#059669'}}>
+                  Station Enable/Disable Log
+                </div>
+                <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'12px'}}>
+                  History of when stations were taken offline and restored
+                </div>
+                {stationLogs.length===0?(
+                  <div style={{textAlign:'center',padding:'24px',color:'#9ca3af',fontSize:'13px'}}>
+                    No station log data yet — logged from this point forward
+                  </div>
+                ):(
+                  <div>
+                    {Object.keys(STATION_INFO).map(stId=>{
+                      const logs = stationLogs.filter((l:any)=>l.station_id===stId)
+                      if (!logs.length) return null
+                      let totalDisabledMs = 0
+                      let lastDisabled: Date|null = null
+                      logs.forEach((l:any)=>{
+                        if (l.action==='disabled') lastDisabled=new Date(l.actioned_at)
+                        else if (l.action==='enabled'&&lastDisabled) {
+                          totalDisabledMs += new Date(l.actioned_at).getTime()-lastDisabled.getTime()
+                          lastDisabled=null
+                        }
+                      })
+                      const totalDisabledHrs = (totalDisabledMs/3600000).toFixed(1)
+                      return (
+                        <div key={stId} style={{marginBottom:'12px',padding:'10px',
+                          background:'#f9fafb',borderRadius:'8px',border:'1px solid #e5e7eb'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                            <div style={{width:'10px',height:'10px',borderRadius:'50%',
+                              background:STATION_INFO[stId].dot}}/>
+                            <span style={{fontWeight:'700',fontSize:'13px'}}>{STATION_INFO[stId].label}</span>
+                            <span style={{marginLeft:'auto',fontSize:'11px',fontWeight:'600',
+                              color:'#dc2626'}}>
+                              {totalDisabledHrs}h total downtime
+                            </span>
+                          </div>
+                          {logs.slice(0,5).map((l:any,i:number)=>(
+                            <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',
+                              fontSize:'11px',padding:'3px 0',
+                              borderBottom:i<logs.length-1?'1px solid #f3f4f6':'none'}}>
+                              <span style={{padding:'1px 6px',borderRadius:'4px',fontWeight:'700',
+                                background:l.action==='disabled'?'#fee2e2':'#dcfce7',
+                                color:l.action==='disabled'?'#dc2626':'#16a34a',
+                                textTransform:'uppercase',fontSize:'9px'}}>{l.action}</span>
+                              <span style={{color:'#374151',fontFamily:'monospace'}}>
+                                {new Date(l.actioned_at).toLocaleString()}
+                              </span>
+                              <span style={{color:'#6b7280'}}>
+                                by {ALL_PEOPLE.find(p=>p.id===l.actioned_by)?.name||l.actioned_by}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
