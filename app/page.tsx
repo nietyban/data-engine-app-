@@ -424,13 +424,34 @@ export default function Home() {
       sb.from('login_logs').select('*').order('logged_in_at',{ascending:false}).then(({data})=>{ if(data) setLoginStats(data) })
       sb.from('station_logs').select('*').order('actioned_at',{ascending:false}).then(({data})=>{ if(data) setStationLogs(data) })
     }
-    // Check for pending adhoc tasks for this user
+    // Check for pending adhoc tasks
     sb.from('adhoc_tasks').select('*').eq('status','pending_confirmation').then(({data})=>{
       if (data && data.length>0) {
-        const mine = data.find((t:any)=>t.staff_id===selectedUser||(isLead&&true))
-        if (mine) setAdhocPendingConfirm(mine)
+        // Leads see any pending task, DCs only see their own
+        const relevant = isLead || isSuperAdmin(selectedUser)
+          ? data[0]
+          : data.find((t:any)=>t.staff_id===selectedUser)
+        if (relevant) setAdhocPendingConfirm(relevant)
       }
     })
+
+    // Real-time subscription for new adhoc tasks (so leads get notified without refresh)
+    const adhocChannel = sb.channel('adhoc-pending')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'adhoc_tasks'},
+        async(payload:any)=>{
+          if (payload.new.status==='pending_confirmation') {
+            const isLeadOrAdmin = isLead || isSuperAdmin(selectedUser)
+            const isOwn = payload.new.staff_id === selectedUser
+            if (isLeadOrAdmin || isOwn) {
+              setAdhocPendingConfirm(payload.new)
+            }
+          }
+          // Refresh full list
+          const {data:fresh} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+          if (fresh) setAdhocTasks(fresh)
+        }
+      ).subscribe()
+    return ()=>{ sb.removeChannel(adhocChannel) }
   },[loggedIn, selectedUser])
 
   const pool       = ROSTER[`s${shift}` as 's1'|'s2']
@@ -859,6 +880,27 @@ export default function Home() {
             </button>
           </div>
         ))}
+
+        {/* ADHOC PENDING NOTIFICATION — shows everywhere for leads */}
+        {adhocPendingConfirm && isLead && (
+          <div style={{background:'#f59e0b',color:'white',padding:'10px 14px',
+            borderRadius:'10px',marginBottom:'8px',display:'flex',
+            alignItems:'center',gap:'10px',boxShadow:'0 2px 8px rgba(245,158,11,0.4)'}}>
+            <span style={{fontSize:'20px'}}>&#128clipboard;</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:'700',fontSize:'13px'}}>&#128203; Adhoc Task Needs Your Confirmation</div>
+              <div style={{fontSize:'12px',opacity:0.9,marginTop:'2px'}}>
+                {ALL_PEOPLE.find(p=>p.id===adhocPendingConfirm.staff_id)?.name} requested: <strong>{adhocPendingConfirm.task_name}</strong>
+                {' '}· {adhocPendingConfirm.start_date} {adhocPendingConfirm.start_time}
+              </div>
+            </div>
+            <button onClick={()=>setTab('adhoc')}
+              style={{background:'rgba(255,255,255,0.25)',border:'none',color:'white',
+                borderRadius:'6px',padding:'4px 10px',cursor:'pointer',fontSize:'12px',fontWeight:'700'}}>
+              Review
+            </button>
+          </div>
+        )}
 
         {/* DATE BAR */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -2246,14 +2288,26 @@ export default function Home() {
                   <div style={{marginTop:'12px'}}>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                       <div style={{gridColumn:'1/-1'}}>
-                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Assign to</div>
-                        <select value={adhocStaffId} onChange={e=>setAdhocStaffId(e.target.value)}
-                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}>
-                          <option value=''>- select person -</option>
-                          {ALL_PEOPLE.filter(p=>!isGuest(p.id)&&p.role!=='ANALYTICS_ADMIN').map(p=>(
-                            <option key={p.id} value={p.id}>{p.name} — {p.role} Shift {p.shift}</option>
-                          ))}
-                        </select>
+                        {(isLead||isSuperAdmin(selectedUser)) ? (
+                          <>
+                            <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Assign to</div>
+                            <select value={adhocStaffId} onChange={e=>setAdhocStaffId(e.target.value)}
+                              style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}>
+                              <option value=''>- select person -</option>
+                              {ALL_PEOPLE.filter(p=>!isGuest(p.id)&&p.role!=='ANALYTICS_ADMIN'&&!isSuperAdmin(p.id)).map(p=>(
+                                <option key={p.id} value={p.id}>{p.name} — {p.role} Shift {p.shift}</option>
+                              ))}
+                            </select>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Assigned to</div>
+                            <div style={{padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                              fontSize:'12px',background:'#f9fafb',color:'#374151',fontWeight:'600'}}>
+                              {currentUser?.name} (you)
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div style={{gridColumn:'1/-1'}}>
                         <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Task name</div>
@@ -2291,26 +2345,29 @@ export default function Home() {
                     {adhocMsg&&<div style={{fontSize:'12px',textAlign:'center',marginBottom:'8px',
                       color:adhocMsg.includes('ok')||adhocMsg.includes('submitted')?'#16a34a':'#dc2626'}}>{adhocMsg}</div>}
                     <button onClick={async()=>{
-                      if (!adhocStaffId||!adhocName||!adhocStartDate||!adhocStartTime){
+                      const assignTarget = (isLead||isSuperAdmin(selectedUser)) ? adhocStaffId : selectedUser||''
+                      if (!assignTarget||!adhocName||!adhocStartDate||!adhocStartTime){
                         setAdhocMsg('Fill in person, task name, start date and time'); return
                       }
-                      const assignedPerson = ALL_PEOPLE.find(p=>p.id===adhocStaffId)
+                      const assignedPerson = ALL_PEOPLE.find(p=>p.id===assignTarget)
                       const isDC = assignedPerson?.role==='DC'||assignedPerson?.role==='DA'
                       const submitterIsDC = currentUser?.role==='DC'||currentUser?.role==='DA'
                       // DC assigning themselves must confirm with lead first
-                      if (submitterIsDC && adhocStaffId===selectedUser) {
+                      if (submitterIsDC) {
                         if (!window.confirm('Please confirm with your shift lead before submitting this adhoc task. Continue?')) return
                       }
-                      const sb = getSupabase(); if (!sb) return
+                      const sb = getSupabase(); if (!sb){setAdhocMsg('Not connected to database');return}
                       const status = isLead||isSuperAdmin(selectedUser) ? 'active' : 'pending_confirmation'
-                      const {data:newTask} = await sb.from('adhoc_tasks').insert({
-                        staff_id:adhocStaffId, task_name:adhocName, description:adhocDesc,
+                      const personShift = assignedPerson?.shift || currentUser?.shift || shift
+                      const {data:newTask, error:insertError} = await sb.from('adhoc_tasks').insert({
+                        staff_id:assignTarget, task_name:adhocName, description:adhocDesc||'',
                         start_date:adhocStartDate, start_time:adhocStartTime,
                         end_date:adhocEndDate||null, end_time:adhocEndTime||null,
-                        submitted_by:selectedUser||'', shift:assignedPerson?.shift||shift,
+                        submitted_by:selectedUser||'', shift:personShift,
                         status, confirmed_by:isLead||isSuperAdmin(selectedUser)?selectedUser||'':null,
                         confirmed_at:isLead||isSuperAdmin(selectedUser)?new Date().toISOString():null
                       }).select().single()
+                      if (insertError){setAdhocMsg('Error: '+insertError.message);return}
                       if (newTask && status==='pending_confirmation') setAdhocPendingConfirm(newTask)
                       const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
                       if (data) setAdhocTasks(data)
