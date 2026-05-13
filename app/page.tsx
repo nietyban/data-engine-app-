@@ -382,30 +382,6 @@ function useRealtimeAttendance() {
     if (start<=today&&today<=end) setAbsentIds(prev=>{ const n=new Set(prev); n.delete(staffId); return n })
   },[today, supabase])
 
-  // ─── TOAST NOTIFICATION ──────────────────────────────────────────────────────
-  const showToast = (text:string, icon:string, color:string) => {
-    setToastMsg({text,icon,color})
-    setTimeout(()=>setToastMsg(null), 3000)
-  }
-
-  // ─── LOG PUNCH EVENT ──────────────────────────────────────────────────────
-  const logPunchEvent = async(staffId:string, eventType:string, stationId?:string, autoLogged=false, notes='')=>{
-    const sb = getSupabase(); if (!sb) return
-    const person = ALL_PEOPLE.find(p=>p.id===staffId)
-    if (!person) return
-    await sb.from('punch_events').insert({
-      staff_id:staffId, event_type:eventType,
-      station_id:stationId||null,
-      shift_date:getToday(), shift:person.shift,
-      logged_at:new Date().toISOString(),
-      auto_logged:autoLogged, notes
-    })
-    if (!autoLogged) {
-      const info = PUNCH_EVENTS.find(e=>e.id===eventType)
-      if (info) showToast(`${info.label} logged at ${new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}`, info.icon, info.color)
-    }
-  }
-
   const toggleStation = useCallback(async(stationId: string, actorId?: string)=>{
     const next = new Set(disabledStations)
     const action = next.has(stationId) ? 'enabled' : 'disabled'
@@ -517,6 +493,30 @@ export default function Home() {
     },1000); 
     return ()=>clearInterval(t) 
   },[loggedIn, selectedUser, todayEvents])
+
+  // ─── TOAST NOTIFICATION ──────────────────────────────────────────────────────
+  const showToast = (text:string, icon:string, color:string) => {
+    setToastMsg({text,icon,color})
+    setTimeout(()=>setToastMsg(null), 3000)
+  }
+
+  // ─── LOG PUNCH EVENT ──────────────────────────────────────────────────────
+  const logPunchEvent = async(staffId:string, eventType:string, stationId?:string, autoLogged=false, notes='')=>{
+    const sb = getSupabase(); if (!sb) return
+    const person = ALL_PEOPLE.find(p=>p.id===staffId)
+    if (!person) return
+    await sb.from('punch_events').insert({
+      staff_id:staffId, event_type:eventType,
+      station_id:stationId||null,
+      shift_date:getToday(), shift:person.shift,
+      logged_at:new Date().toISOString(),
+      auto_logged:autoLogged, notes
+    })
+    if (!autoLogged) {
+      const info = PUNCH_EVENTS.find(e=>e.id===eventType)
+      if (info) showToast(info.label + ' logged at ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}), info.icon, info.color)
+    }
+  }
 
   // Load adhoc tasks, login stats, station logs on login
   useEffect(()=>{
