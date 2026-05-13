@@ -2085,7 +2085,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'8px'}}>
-                  {Array.from(disabledStations).map(stId=>{
+                  {Array.from(disabledStations).map((stId:any)=>{
                     const info=STATION_INFO[stId]
                     if (!info) return null
                     return (
@@ -2458,7 +2458,7 @@ export default function Home() {
             {(()=>{
               const today=getToday()
               const entries: {staffId:string,name:string,role:string,shift:number,start:string,end:string,id:string,days:number}[]=[]
-              Object.entries(vacationMap).forEach(([sid,ranges])=>{
+              Object.entries(vacationMap).forEach(([sid,ranges]:any[])=>{
                 const person=ALL_PEOPLE.find(p=>p.id===sid)
                 if (!person) return
                 ranges.forEach(r=>{
@@ -3074,7 +3074,7 @@ export default function Home() {
                     const members = shiftPool.filter(m=>m.pod===pod&&m.role==='DC')
                     members.forEach(m=>{
                       if (!stationHours[m.name]) stationHours[m.name]={}
-                      Object.values(rot).forEach(dayRot=>{
+                      Object.values(rot).forEach((dayRot:any)=>{
                         const ps = dayRot[pod] 
                         if (!ps) return
                         ps.forEach((stId,idx)=>{
