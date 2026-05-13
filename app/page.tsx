@@ -467,7 +467,10 @@ export default function Home() {
   const [liveStatus, setLiveStatus] = useState<any>({})
   const [analyticsDate, setAnalyticsDate] = useState<string>('today')
   const [analyticsWeekOffset, setAnalyticsWeekOffset] = useState(0)
-  const [overrides, setOverrides] = useState<any>({})
+  const [overrides, setOverrides] = useState<any>({}) // pod_blockIdx -> staffId override
+  const [manualAssignments, setManualAssignments] = useState<any>({}) // staffId -> {stationId, blockIdx}
+  const [showManualAssign, setShowManualAssign] = useState<string|null>(null) // staffId being reassigned
+  const [adhocOverrides, setAdhocOverrides] = useState<any>({}) // staffId -> adhoc task if active
   const [notifications, setNotifications] = useState<any>([])
   const [showReassign, setShowReassign] = useState<any>(null)
 
@@ -531,7 +534,17 @@ export default function Home() {
     if (!loggedIn) return
     const sb = getSupabase()
     if (!sb) return
-    sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false}).then(({data})=>{ if(data) setAdhocTasks(data) })
+    sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false}).then(({data})=>{ 
+      if(data) {
+        setAdhocTasks(data)
+        // Build adhoc overrides map for active tasks today
+        const today = getToday()
+        const activeMap: any = {}
+        data.filter((t:any)=>t.status==='active'&&t.start_date<=today&&(!t.end_date||t.end_date>=today))
+          .forEach((t:any)=>{ activeMap[t.staff_id]=t })
+        setAdhocOverrides(activeMap)
+      }
+    })
     if (isAnalyticsAdmin(selectedUser)) {
       sb.from('login_logs').select('*').order('logged_in_at',{ascending:false}).then(({data})=>{ if(data) setLoginStats(data) })
       sb.from('station_logs').select('*').order('actioned_at',{ascending:false}).then(({data})=>{ if(data) setStationLogs(data) })
@@ -676,9 +689,10 @@ export default function Home() {
     return pods.map(pod=>{
       const ps = rotation?.[pod] 
       if (!ps) return null
-      const members = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id))
       const allPod  = pool.filter(m=>m.pod===pod)
       const absentHere = allPod.filter(m=>absentIds.has(m.id))
+      const members = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&!adhocOverrides[m.id])
+      const adhocMembers = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&adhocOverrides[m.id])
       const personA = members[0]?.name.split(' ')[0]??'?'
       const personB = members[1]?.name.split(' ')[0]??'(solo)'
       const isSolo  = members.length<2
@@ -694,8 +708,20 @@ export default function Home() {
         {label:'Block 3',station:ps[2],timeLabel:'2:00-4:00PM',startMin:14*60,durHrs:2,isCross:false},
         {label:'Block 4',station:ps[3],timeLabel:'4:00-6:00PM',startMin:16*60,durHrs:2,isCross:false},
       ]
-      return {pod,members,allPod,absentHere,personA,personB,isSolo,blocks}
+      return {pod,members,allPod,absentHere,adhocMembers,personA,personB,isSolo,blocks}
     }).filter(Boolean)
+  }
+
+  // ── ADHOC/MANUAL ASSIGNMENT HELPERS ────────────────────────────────────────
+  function isOnAdhoc(staffId: string): boolean {
+    const task = adhocOverrides[staffId]
+    if (!task) return false
+    const today = getToday()
+    return task.status==='active' && task.start_date<=today && (!task.end_date||task.end_date>=today)
+  }
+
+  function getAdhocTask(staffId: string): any {
+    return isOnAdhoc(staffId) ? adhocOverrides[staffId] : null
   }
 
   function getAutoAssignments(): Record<string,{pod:string,station:string,assignee:typeof ALL_PEOPLE[0],blockLabel:string}[]> {
@@ -1809,6 +1835,30 @@ export default function Home() {
         {/* ── MY SCHEDULE TAB ──────────────────────────────────────────────── */}
         {tab==='mine' && (
           <div>
+            {/* ADHOC TASK ACTIVE NOTICE */}
+            {isOnAdhoc(selectedUser||'') && (()=>{
+              const task = getAdhocTask(selectedUser||'')
+              return (
+                <div style={{background:'#7c3aed',color:'white',borderRadius:'12px',
+                  padding:'14px',marginBottom:'12px',border:'2px solid #6d28d9'}}>
+                  <div style={{fontWeight:'800',fontSize:'14px',marginBottom:'6px'}}>
+                    📋 You are on an Adhoc Task — Removed from Regular Rotation
+                  </div>
+                  <div style={{fontSize:'13px',opacity:0.9,marginBottom:'4px'}}>
+                    <strong>{task.task_name}</strong>
+                    {task.description&&<span> — {task.description}</span>}
+                  </div>
+                  <div style={{fontSize:'11px',opacity:0.75,fontFamily:'monospace'}}>
+                    {task.start_date} {task.start_time}
+                    {task.end_date&&<span> → {task.end_date} {task.end_time}</span>}
+                  </div>
+                  <div style={{marginTop:'8px',fontSize:'11px',opacity:0.8}}>
+                    Your regular station assignments are paused. Return to your rotation once this task is complete.
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* MY TIME OFF */}
             {(vacationMap[selectedUser||'']||[]).length > 0 && (
               <div style={{background:'white',borderRadius:'12px',border:'1px solid #bfdbfe',
@@ -1862,6 +1912,12 @@ export default function Home() {
                   border:'1px solid #e5e7eb'}}>
                   <strong>Your stations today</strong> · Pod {myPod} · {currentUser?.shift===1?'1st Shift':'2nd Shift'} ·
                   Day {dayIdx+1}/8 rotation
+                  {manualAssignments[selectedUser||''] && (
+                    <span style={{marginLeft:'8px',padding:'2px 8px',borderRadius:'4px',
+                      background:'#eff6ff',color:'#1d4ed8',fontSize:'10px',fontWeight:'700'}}>
+                      ⚡ Manual override active for current block
+                    </span>
+                  )}
                   {currentUser?.shift===1&&(
                     <span style={{marginLeft:'8px',color:'#7c3aed',fontSize:'11px'}}>
                       Cross-training on 2nd shift stations during your lunch window
@@ -2265,6 +2321,13 @@ export default function Home() {
                         fontSize:'12px',background:'#fee2e2',color:'#dc2626',
                         border:'1px solid #fca5a5',textDecoration:'line-through',opacity:0.6}}>{m.name}</span>
                     ))}
+                    {row.adhocMembers&&row.adhocMembers.map((m:any)=>(
+                      <span key={m.id} style={{padding:'3px 10px',borderRadius:'99px',
+                        fontSize:'12px',background:'#f3e8ff',color:'#7c3aed',
+                        border:'1px solid #d8b4fe'}}>
+                        📋 {m.name} (Adhoc)
+                      </span>
+                    ))}
                     {isSolo&&(
                       <span style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:'6px'}}>
                         <span style={{padding:'3px 10px',borderRadius:'99px',
@@ -2398,6 +2461,89 @@ export default function Home() {
           </div>
         )}
 
+            {/* ADHOC TASKS SECTION in Team Schedule */}
+            {(()=>{
+              const today = getToday()
+              const activeAdhoc = adhocTasks.filter((t:any)=>
+                t.status==='active' && t.start_date<=today && (!t.end_date||t.end_date>=today) &&
+                pool.find((p:any)=>p.id===t.staff_id)
+              )
+              if (!activeAdhoc.length) return null
+              return (
+                <div style={{background:'white',borderRadius:'12px',
+                  border:'2px solid #7c3aed',marginBottom:'10px',overflow:'hidden'}}>
+                  <div style={{padding:'10px 14px',background:'#f3e8ff',
+                    borderBottom:'1px solid #d8b4fe',display:'flex',alignItems:'center',gap:'8px'}}>
+                    <span style={{fontSize:'12px',fontWeight:'700',color:'white',
+                      background:'#7c3aed',padding:'3px 10px',borderRadius:'6px'}}>ADHOC</span>
+                    <span style={{fontSize:'12px',color:'#7c3aed',fontWeight:'600'}}>
+                      Active Adhoc Tasks — Removed from Regular Rotation
+                    </span>
+                  </div>
+                  {activeAdhoc.map((task:any)=>{
+                    const person = ALL_PEOPLE.find((p:any)=>p.id===task.staff_id)
+                    if (!person) return null
+                    return (
+                      <div key={task.id} style={{padding:'10px 14px',
+                        borderBottom:'1px solid #f3f4f6',
+                        display:'flex',alignItems:'center',gap:'10px'}}>
+                        <div style={{width:'32px',height:'32px',borderRadius:'50%',
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                          fontSize:'10px',fontWeight:'700',flexShrink:0,
+                          background:COLORS[person.role]?.[0]||'#f3f4f6',
+                          color:COLORS[person.role]?.[1]||'#374151'}}>
+                          {person.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                        </div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:'13px',fontWeight:'700'}}>{person.name}</div>
+                          <div style={{fontSize:'11px',color:'#7c3aed',fontWeight:'600'}}>{task.task_name}</div>
+                          <div style={{fontSize:'10px',color:'#6b7280',fontFamily:'monospace'}}>
+                            {task.start_date} {task.start_time}
+                            {task.end_date&&<span> → {task.end_date} {task.end_time}</span>}
+                          </div>
+                        </div>
+                        {/* Edit button for leads/Yban */}
+                        {(isLead||isSuperAdmin(selectedUser))&&(
+                          <button onClick={()=>{
+                            const newStart = window.prompt('Start date (YYYY-MM-DD):', task.start_date)
+                            if (!newStart) return
+                            const newStartTime = window.prompt('Start time (HH:MM):', task.start_time)
+                            if (!newStartTime) return
+                            const newEnd = window.prompt('End date (YYYY-MM-DD, or blank):', task.end_date||'')
+                            const newEndTime = window.prompt('End time (HH:MM, or blank):', task.end_time||'')
+                            const sb = getSupabase(); if (!sb) return
+                            sb.from('adhoc_tasks').update({
+                              start_date:newStart, start_time:newStartTime,
+                              end_date:newEnd||null, end_time:newEndTime||null
+                            }).eq('id',task.id).then(()=>{
+                              sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false}).then(({data})=>{
+                                if(data){
+                                  setAdhocTasks(data)
+                                  const today2=getToday()
+                                  const am:any={}
+                                  data.filter((t:any)=>t.status==='active'&&t.start_date<=today2&&(!t.end_date||t.end_date>=today2)).forEach((t:any)=>{am[t.staff_id]=t})
+                                  setAdhocOverrides(am)
+                                }
+                              })
+                            })
+                          }} style={{padding:'4px 8px',borderRadius:'6px',fontSize:'10px',
+                            border:'1px solid #d8b4fe',background:'#f3e8ff',
+                            color:'#7c3aed',cursor:'pointer',fontWeight:'600'}}>
+                            ✏️ Edit
+                          </button>
+                        )}
+                        <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'10px',
+                          fontWeight:'700',background:'#fee2e2',color:'#dc2626'}}>
+                          OFF ROTATION
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
+
         {/* ── ROSTER TAB ───────────────────────────────────────────────────── */}
         {tab==='roster' && (
           <div style={{background:'white',borderRadius:'12px',
@@ -2449,6 +2595,12 @@ export default function Home() {
                               fontSize:'9px',border:'1px solid #e5e7eb',background:'white',
                               cursor:'pointer',color:'#6b7280'}}>reset PIN</button>
                         )}
+                        {(isLead||isSuperAdmin(selectedUser))&&!isGuest(m.id)&&(
+                          <button onClick={e=>{e.stopPropagation();setShowManualAssign(m.id)}}
+                            style={{marginLeft:'2px',padding:'1px 5px',borderRadius:'4px',
+                              fontSize:'9px',border:'1px solid #bfdbfe',background:'#eff6ff',
+                              cursor:'pointer',color:'#1d4ed8'}}>reassign</button>
+                        )}
                         {(vacationMap[m.id]||[]).length>0&&(
                           <span style={{fontSize:'9px',background:'#eff6ff',color:'#1d4ed8',
                             padding:'1px 4px',borderRadius:'3px',border:'1px solid #bfdbfe'}}>
@@ -2461,6 +2613,60 @@ export default function Home() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* MANUAL REASSIGNMENT MODAL */}
+        {showManualAssign && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',
+            zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+            <div style={{background:'white',borderRadius:'16px',padding:'20px',
+              width:'100%',maxWidth:'360px',boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
+              <div style={{fontWeight:'800',fontSize:'15px',marginBottom:'4px'}}>
+                Reassign {ALL_PEOPLE.find((p:any)=>p.id===showManualAssign)?.name}
+              </div>
+              <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'16px'}}>
+                This overrides their rotation for the current block only
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}}>
+                {Object.entries(STATION_INFO).map(([stId,info]:any)=>(
+                  <button key={stId} onClick={()=>{
+                    setManualAssignments((prev:any)=>({...prev,
+                      [showManualAssign]:{stationId:stId, blockIdx: new Date().getHours()<12?0:new Date().getHours()<14?2:3}
+                    }))
+                    // Notify the person
+                    const person = ALL_PEOPLE.find((p:any)=>p.id===showManualAssign)
+                    setNotifications((prev:any)=>[...prev,{
+                      id:`reassign_${showManualAssign}_${Date.now()}`,
+                      msg:`${person?.name} has been manually reassigned to ${info.label} for this block`,
+                      time:Date.now()
+                    }])
+                    setShowManualAssign(null)
+                  }} style={{padding:'10px 8px',borderRadius:'8px',cursor:'pointer',
+                    border:`1px solid ${info.dot}44`,background:`${info.dot}11`,
+                    color:info.dot,fontWeight:'700',fontSize:'11px',
+                    display:'flex',alignItems:'center',gap:'6px',justifyContent:'center'}}>
+                    <div style={{width:'8px',height:'8px',borderRadius:'50%',background:info.dot,flexShrink:0}}/>
+                    {info.label}
+                  </button>
+                ))}
+                <button onClick={()=>{
+                  setManualAssignments((prev:any)=>{
+                    const n={...prev}; delete n[showManualAssign!]; return n
+                  })
+                  setShowManualAssign(null)
+                }} style={{padding:'10px 8px',borderRadius:'8px',cursor:'pointer',
+                  border:'1px solid #86efac',background:'#f0fdf4',
+                  color:'#16a34a',fontWeight:'700',fontSize:'11px',gridColumn:'1/-1'}}>
+                  ↩ Return to Regular Rotation
+                </button>
+              </div>
+              <button onClick={()=>setShowManualAssign(null)}
+                style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                  background:'white',cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
@@ -2802,7 +3008,14 @@ export default function Home() {
                       confirmed_at:new Date().toISOString()
                     }).eq('id',adhocPendingConfirm.id)
                     const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
-                    if (data) setAdhocTasks(data)
+                    if (data) {
+                      setAdhocTasks(data)
+                      const today = getToday()
+                      const activeMap: any = {}
+                      data.filter((t:any)=>t.status==='active'&&t.start_date<=today&&(!t.end_date||t.end_date>=today))
+                        .forEach((t:any)=>{ activeMap[t.staff_id]=t })
+                      setAdhocOverrides(activeMap)
+                    }
                     setAdhocPendingConfirm(null)
                   }} style={{flex:1,padding:'8px',borderRadius:'8px',border:'none',
                     background:'#22c55e',color:'white',cursor:'pointer',fontWeight:'700',fontSize:'13px'}}>
@@ -2980,7 +3193,12 @@ export default function Home() {
                           const sb=getSupabase();if(!sb)return
                           await sb.from('adhoc_tasks').update({status:'completed',end_date:getToday(),end_time:new Date().toTimeString().slice(0,5)}).eq('id',task.id)
                           const {data}=await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
-                          if(data)setAdhocTasks(data)
+                          if(data){
+                            setAdhocTasks(data)
+                            const today=getToday();const am:any={}
+                            data.filter((t:any)=>t.status==='active'&&t.start_date<=today&&(!t.end_date||t.end_date>=today)).forEach((t:any)=>{am[t.staff_id]=t})
+                            setAdhocOverrides(am)
+                          }
                         }} style={{flex:1,padding:'5px',borderRadius:'6px',border:'1px solid #86efac',
                           background:'#f0fdf4',color:'#16a34a',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
                           Mark Complete
@@ -2989,7 +3207,12 @@ export default function Home() {
                           const sb=getSupabase();if(!sb)return
                           await sb.from('adhoc_tasks').update({status:'cancelled'}).eq('id',task.id)
                           const {data}=await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
-                          if(data)setAdhocTasks(data)
+                          if(data){
+                            setAdhocTasks(data)
+                            const today=getToday();const am:any={}
+                            data.filter((t:any)=>t.status==='active'&&t.start_date<=today&&(!t.end_date||t.end_date>=today)).forEach((t:any)=>{am[t.staff_id]=t})
+                            setAdhocOverrides(am)
+                          }
                         }} style={{flex:1,padding:'5px',borderRadius:'6px',border:'1px solid #fca5a5',
                           background:'#fef2f2',color:'#dc2626',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>
                           Cancel
