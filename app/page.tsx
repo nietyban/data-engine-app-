@@ -246,6 +246,7 @@ const PUNCH_EVENTS = [
   {id:'return_break',  label:'Return from Break',     color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
   {id:'return_car_move',label:'Return from Car Move', color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
   {id:'return_bathroom',label:'Return from Bathroom', color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
+  {id:'left_early',    label:'Left Work Early',        color:'#dc2626', bg:'#fee2e2', icon:'🚪'},
   {id:'punch_out',     label:'Punch Out',             color:'#dc2626', bg:'#fee2e2', icon:'🔴'},
 ]
 
@@ -478,7 +479,7 @@ export default function Home() {
         const nowM = new Date().getHours()*60+new Date().getMinutes()
         const endMin = getShiftEndMin(currentUser.shift)
         const myLastEvent = todayEvents.filter((e:any)=>e.staff_id===selectedUser).slice(-1)[0]
-        if (nowM >= endMin && myLastEvent && myLastEvent.event_type !== 'punch_out') {
+        if (nowM >= endMin && myLastEvent && myLastEvent.event_type !== 'punch_out' && myLastEvent.event_type !== 'left_early') {
           const sb = getSupabase()
           if (sb) {
             sb.from('punch_events').insert({
@@ -1529,18 +1530,18 @@ export default function Home() {
               
               // Which buttons to show based on last event
               const showButtons = ()=>{
-                if (!lastEvent || isPunchedOut) return ['punch_in']
+                if (!lastEvent || isPunchedOut || lastEvent?.event_type==='left_early') return ['punch_in']
                 const e = lastEvent.event_type
                 if (e==='punch_in'||e==='at_station'||e==='return_lunch'||e==='return_break'||e==='return_car_move'||e==='return_bathroom'||e==='transition') 
-                  return ['at_station','waiting_station','break','car_move','bathroom','lunch','punch_out']
+                  return ['at_station','waiting_station','break','car_move','bathroom','lunch','left_early','punch_out']
                 if (e==='waiting_station'||e==='waiting_station_down') 
-                  return ['at_station','break','bathroom','punch_out']
-                if (e==='break') return ['return_break','punch_out']
-                if (e==='car_move') return ['return_car_move','punch_out']
-                if (e==='bathroom') return ['return_bathroom','punch_out']
-                if (e==='lunch') return ['return_lunch','punch_out']
-                if (e==='adhoc_task') return ['at_station','punch_out']
-                return ['at_station','punch_out']
+                  return ['at_station','break','bathroom','left_early','punch_out']
+                if (e==='break') return ['return_break','left_early','punch_out']
+                if (e==='car_move') return ['return_car_move','left_early','punch_out']
+                if (e==='bathroom') return ['return_bathroom','left_early','punch_out']
+                if (e==='lunch') return ['return_lunch','left_early','punch_out']
+                if (e==='adhoc_task') return ['at_station','left_early','punch_out']
+                return ['at_station','left_early','punch_out']
               }
 
               return (
@@ -1651,14 +1652,14 @@ export default function Home() {
               const lastEvent = myEvents.slice(-1)[0]
               const lastInfo = lastEvent ? getPunchInfo(lastEvent.event_type) : null
               const showButtons = ()=>{
-                if (!lastEvent || lastEvent.event_type==='punch_out') return ['punch_in']
+                if (!lastEvent || lastEvent.event_type==='punch_out' || lastEvent.event_type==='left_early') return ['punch_in']
                 const e = lastEvent.event_type
                 if (e==='punch_in'||e==='at_station'||e.startsWith('return')||e==='transition')
-                  return ['at_station','break','bathroom','lunch','punch_out']
-                if (e==='break') return ['return_break','punch_out']
-                if (e==='bathroom') return ['return_bathroom','punch_out']
-                if (e==='lunch') return ['return_lunch','punch_out']
-                return ['at_station','punch_out']
+                  return ['at_station','break','bathroom','lunch','left_early','punch_out']
+                if (e==='break') return ['return_break','left_early','punch_out']
+                if (e==='bathroom') return ['return_bathroom','left_early','punch_out']
+                if (e==='lunch') return ['return_lunch','left_early','punch_out']
+                return ['at_station','left_early','punch_out']
               }
               return (
                 <div style={{marginTop:'0',marginBottom:'8px',padding:'12px',background:'#f9fafb',
