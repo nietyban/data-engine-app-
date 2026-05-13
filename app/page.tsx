@@ -458,13 +458,13 @@ export default function Home() {
   const [adhocPendingConfirm, setAdhocPendingConfirm] = useState<any|null>(null)
   const [loginStats, setLoginStats] = useState<any[]>([])
   const [stationLogs, setStationLogs] = useState<any[]>([])
-  const [analyticsTab, setAnalyticsTab] = useState<'hours'|'timeoff'|'logins'|'stations'|'events'>('hours')
-  const [toastMsg, setToastMsg] = useState<{text:string,icon:string,color:string}|null>(null)
+  const [analyticsTab, setAnalyticsTab] = useState<string>('hours')
+  const [toastMsg, setToastMsg] = useState<any>(null)
   // Punch system state
   const [punchEvents, setPunchEvents] = useState<any[]>([])
   const [todayEvents, setTodayEvents] = useState<any[]>([])
   const [liveStatus, setLiveStatus] = useState<Record<string,{event:string,station?:string,since:Date}>>({})
-  const [analyticsDate, setAnalyticsDate] = useState<'today'|'week'>('today')
+  const [analyticsDate, setAnalyticsDate] = useState<string>('today')
   const [analyticsWeekOffset, setAnalyticsWeekOffset] = useState(0)
   const [overrides, setOverrides] = useState<Record<string,string>>({})
   const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
@@ -2921,7 +2921,7 @@ export default function Home() {
 
             <div style={{display:'flex',gap:'6px',marginBottom:'12px',flexWrap:'wrap'}}>
               {(['events','hours','timeoff','logins','stations'] as const).map(t=>(
-                <button key={t} onClick={()=>setAnalyticsTab(t as any)}
+                <button key={t} onClick={()=>setAnalyticsTab(t)}
                   style={{padding:'7px 14px',borderRadius:'8px',cursor:'pointer',
                     border:'1px solid',fontWeight:'600',fontSize:'11px',textTransform:'uppercase',
                     borderColor:analyticsTab===t?'#059669':'#e5e7eb',
