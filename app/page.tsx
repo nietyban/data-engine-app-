@@ -547,28 +547,36 @@ export default function Home() {
     })
 
     // Load today's punch events
-    sb.from('punch_events').select('*')
-      .eq('shift_date', getToday())
-      .order('logged_at', {ascending: true})
-      .then(({data})=>{
-        if (data) {
-          setTodayEvents(data)
-          // Build live status map
-          const statusMap: Record<string,{event:string,station?:string,since:Date}> = {}
-          data.forEach((e:any)=>{
-            statusMap[e.staff_id] = {event:e.event_type, station:e.station_id, since:new Date(e.logged_at)}
-          })
-          setLiveStatus(statusMap)
-        }
-      })
+    const loadPunchEvents = async () => {
+      const {data} = await sb.from('punch_events').select('*')
+        .eq('shift_date', getToday())
+        .order('logged_at', {ascending: true})
+      if (data) {
+        setTodayEvents(data)
+        const statusMap: any = {}
+        data.forEach((e:any)=>{
+          statusMap[e.staff_id] = {event:e.event_type, station:e.station_id, since:new Date(e.logged_at)}
+        })
+        setLiveStatus(statusMap)
+      }
+    }
+    loadPunchEvents()
 
-    // Real-time punch events subscription
-    const punchChannel = sb.channel('punch-live')
+    // Refresh punch events every 30 seconds to catch any missed realtime updates
+    const punchRefreshInterval = setInterval(loadPunchEvents, 30000)
+
+    // Real-time punch events subscription — unique channel per session
+    const sessionId = Math.random().toString(36).slice(2)
+    const punchChannel = sb.channel(`punch-live-${sessionId}`)
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'punch_events',
         filter:`shift_date=eq.${getToday()}`},
         (payload:any)=>{
-          setTodayEvents(prev=>[...prev, payload.new])
-          setLiveStatus(prev=>({...prev,
+          setTodayEvents(prev=>{
+            // Avoid duplicates
+            if (prev.find((e:any)=>e.staff_id===payload.new.staff_id&&e.logged_at===payload.new.logged_at)) return prev
+            return [...prev, payload.new]
+          })
+          setLiveStatus((prev:any)=>({...prev,
             [payload.new.staff_id]:{event:payload.new.event_type,station:payload.new.station_id,since:new Date(payload.new.logged_at)}
           }))
         }
@@ -593,6 +601,7 @@ export default function Home() {
     return ()=>{ 
       sb.removeChannel(adhocChannel)
       sb.removeChannel(punchChannel)
+      clearInterval(punchRefreshInterval)
     }
   },[loggedIn, selectedUser])
 
@@ -2940,6 +2949,16 @@ export default function Home() {
             {/* EVENTS BREAKDOWN */}
             {analyticsTab==='events' && (
               <div>
+                <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'8px'}}>
+                  <button onClick={async()=>{
+                    const sb=getSupabase(); if(!sb) return
+                    const {data}=await sb.from('punch_events').select('*').eq('shift_date',getToday()).order('logged_at',{ascending:true})
+                    if(data) setTodayEvents(data)
+                  }} style={{padding:'5px 12px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                    background:'white',cursor:'pointer',fontSize:'11px',color:'#6b7280',fontWeight:'600'}}>
+                    ↻ Refresh
+                  </button>
+                </div>
                 {/* Per person breakdown */}
                 {[1,2].map(s=>{
                   const shiftPool = ROSTER[s===1?'s1':'s2'].filter(m=>!isGuest(m.id)&&m.role!=='ANALYTICS_ADMIN'&&!isSuperAdmin(m.id))
