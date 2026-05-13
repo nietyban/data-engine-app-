@@ -505,13 +505,20 @@ export default function Home() {
     const sb = getSupabase(); if (!sb) return
     const person = ALL_PEOPLE.find(p=>p.id===staffId)
     if (!person) return
-    await sb.from('punch_events').insert({
+    const newEvent = {
       staff_id:staffId, event_type:eventType,
       station_id:stationId||null,
       shift_date:getToday(), shift:person.shift,
       logged_at:new Date().toISOString(),
       auto_logged:autoLogged, notes
-    })
+    }
+    // Update local state immediately so buttons re-render without waiting for realtime
+    setTodayEvents(prev=>[...prev, newEvent])
+    setLiveStatus((prev:any)=>({...prev,
+      [staffId]:{event:eventType, station:stationId, since:new Date()}
+    }))
+    // Then persist to Supabase
+    await sb.from('punch_events').insert(newEvent)
     if (!autoLogged) {
       const info = PUNCH_EVENTS.find(e=>e.id===eventType)
       if (info) showToast(info.label + ' logged at ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}), info.icon, info.color)
