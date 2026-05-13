@@ -2959,35 +2959,56 @@ export default function Home() {
                     ↻ Refresh
                   </button>
                 </div>
-                {/* Per person breakdown */}
+                {todayEvents.length===0 ? (
+                  <div style={{textAlign:'center',padding:'32px',color:'#9ca3af',fontSize:'13px'}}>
+                    No events logged today yet. Hit Refresh if you expect data.
+                  </div>
+                ) : (
+                <div>
+                {/* Per shift breakdown */}
                 {[1,2].map(s=>{
-                  const shiftPool = ROSTER[s===1?'s1':'s2'].filter(m=>!isGuest(m.id)&&m.role!=='ANALYTICS_ADMIN'&&!isSuperAdmin(m.id))
-                  const shiftEvents = todayEvents.filter((e:any)=>shiftPool.find(p=>p.id===e.staff_id))
-                  if (!shiftEvents.length) return null
-                  
-                  // Per person summary
-                  const byPerson: Record<string,Record<string,number>> = {}
-                  shiftPool.forEach(p=>{ byPerson[p.id]={} })
-                  shiftEvents.forEach((e:any,i:number)=>{
-                    const next = shiftEvents[i+1]
-                    if (!byPerson[e.staff_id]) byPerson[e.staff_id]={}
-                    const dur = next && next.staff_id===e.staff_id
-                      ? (new Date(next.logged_at).getTime()-new Date(e.logged_at).getTime())/60000
-                      : 0
-                    byPerson[e.staff_id][e.event_type] = (byPerson[e.staff_id][e.event_type]||0)+dur
+                  const shiftPool = ROSTER[s===1?'s1':'s2'].filter((m:any)=>!isGuest(m.id)&&m.role!=='ANALYTICS_ADMIN'&&!isSuperAdmin(m.id))
+                  const shiftEvents = todayEvents.filter((e:any)=>shiftPool.find((p:any)=>p.id===e.staff_id))
+                  if (!shiftEvents.length) return (
+                    <div key={s} style={{marginBottom:'12px',padding:'10px 14px',background:'white',
+                      borderRadius:'10px',border:'1px solid #e5e7eb',color:'#9ca3af',fontSize:'12px'}}>
+                      Shift {s} — No events logged yet
+                    </div>
+                  )
+
+                  // Build per-person event durations correctly
+                  // Group events by person first, then calculate durations within each person's timeline
+                  const byPerson: any = {}
+                  shiftPool.forEach((p:any)=>{ byPerson[p.id]={} })
+
+                  const eventsByPerson: any = {}
+                  shiftEvents.forEach((e:any)=>{
+                    if (!eventsByPerson[e.staff_id]) eventsByPerson[e.staff_id] = []
+                    eventsByPerson[e.staff_id].push(e)
+                  })
+
+                  Object.entries(eventsByPerson).forEach(([staffId, events]:any)=>{
+                    events.forEach((e:any, i:number)=>{
+                      const next = events[i+1]
+                      if (!byPerson[staffId]) byPerson[staffId] = {}
+                      const dur = next
+                        ? (new Date(next.logged_at).getTime()-new Date(e.logged_at).getTime())/60000
+                        : (Date.now()-new Date(e.logged_at).getTime())/60000 // ongoing event
+                      byPerson[staffId][e.event_type] = (byPerson[staffId][e.event_type]||0)+dur
+                    })
                   })
 
                   // Team summary
                   const teamSummary: Record<string,number> = {}
-                  Object.values(byPerson).forEach(personEvents=>{
-                    Object.entries(personEvents).forEach(([evt,mins])=>{
-                      teamSummary[evt]=(teamSummary[evt]||0)+mins
+                  Object.values(byPerson).forEach((personEvents:any)=>{
+                    Object.entries(personEvents).forEach(([evt,mins]:any[])=>{
+                      teamSummary[evt]=(teamSummary[evt]||0)+(mins as number)
                     })
                   })
                   const collectionEvents = ['at_station','transition']
                   const overheadEvents = ['waiting_station','waiting_station_down','break','car_move','bathroom','lunch','adhoc_task']
-                  const totalCollectionMins = Object.entries(teamSummary).filter(([k])=>collectionEvents.includes(k)).reduce((a,[,v])=>a+v,0)
-                  const totalOverheadMins = Object.entries(teamSummary).filter(([k])=>overheadEvents.includes(k)).reduce((a,[,v])=>a+v,0)
+                  const totalCollectionMins = Object.entries(teamSummary).filter(([k])=>collectionEvents.includes(k)).reduce((a:number,[,v]:any[])=>a+(v as number),0)
+                  const totalOverheadMins = Object.entries(teamSummary).filter(([k])=>overheadEvents.includes(k)).reduce((a:number,[,v]:any[])=>a+(v as number),0)
                   const totalMins = totalCollectionMins+totalOverheadMins
                   const collectionPct = totalMins>0?Math.round(totalCollectionMins/totalMins*100):0
 
@@ -3034,10 +3055,10 @@ export default function Home() {
                       </div>
 
                       {/* Per person */}
-                      {shiftPool.filter(p=>byPerson[p.id]&&Object.keys(byPerson[p.id]).length>0).map(person=>{
-                        const events = byPerson[person.id]
-                        const personTotal = Object.values(events).reduce((a,b)=>a+b,0)
-                        const personCollection = Object.entries(events).filter(([k])=>collectionEvents.includes(k)).reduce((a,[,v])=>a+v,0)
+                      {shiftPool.filter((p:any)=>byPerson[p.id]&&Object.keys(byPerson[p.id]).length>0).map((person:any)=>{
+                        const events:any = byPerson[person.id]
+                        const personTotal:number = Object.values(events).reduce((a:any,b:any)=>a+b,0) as number
+                        const personCollection:number = Object.entries(events).filter(([k])=>collectionEvents.includes(k)).reduce((a:number,[,v]:any[])=>a+(v as number),0)
                         const personPct = personTotal>0?Math.round(personCollection/personTotal*100):0
                         return (
                           <div key={person.id} style={{background:'white',borderRadius:'10px',
@@ -3062,14 +3083,14 @@ export default function Home() {
                               </div>
                             </div>
                             <div style={{display:'flex',height:'12px',borderRadius:'4px',overflow:'hidden',marginBottom:'6px'}}>
-                              {Object.entries(events).filter(([,v])=>v>0).map(([evt,mins])=>{
+                              {Object.entries(events).filter(([,v]:any[])=>(v as number)>0).map(([evt,mins]:any[])=>{
                                 const info=getPunchInfo(evt)
                                 const pct=personTotal>0?(mins/personTotal*100):0
                                 return pct>0?<div key={evt} style={{width:`${pct}%`,background:info.color}}/>:null
                               })}
                             </div>
                             <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
-                              {Object.entries(events).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([evt,mins])=>{
+                              {Object.entries(events).filter(([,v]:any[])=>(v as number)>0).sort((a:any,b:any)=>b[1]-a[1]).map(([evt,mins]:any[])=>{
                                 const info=getPunchInfo(evt)
                                 return (
                                   <span key={evt} style={{fontSize:'9px',padding:'1px 5px',borderRadius:'3px',
@@ -3085,6 +3106,8 @@ export default function Home() {
                     </div>
                   )
                 })}
+                </div>
+                )}
               </div>
             )}
 
