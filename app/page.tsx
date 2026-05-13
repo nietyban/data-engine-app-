@@ -255,8 +255,8 @@ function getPunchInfo(eventId: string) {
 
 function formatDuration(ms: number): string {
   const mins = Math.floor(ms/60000)
-  if (mins < 60) return \`\${mins}m\`
-  return \`\${Math.floor(mins/60)}h \${mins%60}m\`
+  if (mins < 60) return mins + 'm'
+  return Math.floor(mins/60) + 'h ' + (mins%60) + 'm'
 }
 
 function getShiftEndMin(shiftNum: number): number {
