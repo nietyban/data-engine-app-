@@ -3108,6 +3108,18 @@ export default function Home() {
                     background:'white',cursor:'pointer',fontSize:'11px',color:'#6b7280',fontWeight:'600'}}>
                     ↻ Refresh
                   </button>
+                  {(selectedUser==='yban'||selectedUser==='yban2') && (
+                    <button onClick={async()=>{
+                      if (!window.confirm('Delete ALL punch events for today? This cannot be undone.')) return
+                      const sb=getSupabase(); if(!sb) return
+                      await sb.from('punch_events').delete().eq('shift_date',getToday())
+                      setTodayEvents([])
+                      setLiveStatus({})
+                    }} style={{padding:'5px 12px',borderRadius:'6px',border:'1px solid #fca5a5',
+                      background:'#fef2f2',cursor:'pointer',fontSize:'11px',color:'#dc2626',fontWeight:'600'}}>
+                      🗑 Reset Today
+                    </button>
+                  )}
                 </div>
                 {todayEvents.length===0 ? (
                   <div style={{textAlign:'center',padding:'32px',color:'#9ca3af',fontSize:'13px'}}>
