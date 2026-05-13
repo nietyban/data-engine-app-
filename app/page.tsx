@@ -230,6 +230,39 @@ function checkMonitoringWindow(staffId: string, nowMin: number): boolean {
   return getMonitoringWindows(staffId).some(w => nowMin >= w.startMin && nowMin < w.endMin)
 }
 
+// ─── PUNCH EVENT HELPERS ──────────────────────────────────────────────────────
+const PUNCH_EVENTS = [
+  {id:'punch_in',      label:'Punch In',              color:'#16a34a', bg:'#dcfce7', icon:'🟢'},
+  {id:'at_station',    label:'At Station',            color:'#1d4ed8', bg:'#dbeafe', icon:'📍'},
+  {id:'waiting_station',label:'Waiting for Station', color:'#f59e0b', bg:'#fef3c7', icon:'⏳'},
+  {id:'waiting_station_down',label:'Station Down',   color:'#dc2626', bg:'#fee2e2', icon:'🚫'},
+  {id:'break',         label:'Break',                 color:'#7c3aed', bg:'#f3e8ff', icon:'☕'},
+  {id:'car_move',      label:'Car Move',              color:'#0891b2', bg:'#ecfeff', icon:'🚗'},
+  {id:'bathroom',      label:'Bathroom',              color:'#6b7280', bg:'#f3f4f6', icon:'🚻'},
+  {id:'lunch',         label:'Lunch',                 color:'#92400e', bg:'#fffbeb', icon:'🍽️'},
+  {id:'adhoc_task',    label:'Adhoc Task',            color:'#be185d', bg:'#fce7f3', icon:'📋'},
+  {id:'transition',    label:'Transitioning',         color:'#059669', bg:'#d1fae5', icon:'🔄'},
+  {id:'return_lunch',  label:'Return from Lunch',     color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
+  {id:'return_break',  label:'Return from Break',     color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
+  {id:'return_car_move',label:'Return from Car Move', color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
+  {id:'return_bathroom',label:'Return from Bathroom', color:'#16a34a', bg:'#dcfce7', icon:'↩️'},
+  {id:'punch_out',     label:'Punch Out',             color:'#dc2626', bg:'#fee2e2', icon:'🔴'},
+]
+
+function getPunchInfo(eventId: string) {
+  return PUNCH_EVENTS.find(e=>e.id===eventId) || {id:eventId,label:eventId,color:'#6b7280',bg:'#f3f4f6',icon:'•'}
+}
+
+function formatDuration(ms: number): string {
+  const mins = Math.floor(ms/60000)
+  if (mins < 60) return \`\${mins}m\`
+  return \`\${Math.floor(mins/60)}h \${mins%60}m\`
+}
+
+function getShiftEndMin(shiftNum: number): number {
+  return shiftNum === 1 ? 15*60 : 18*60 // 3PM or 6PM
+}
+
 // ─── REAL-TIME ATTENDANCE HOOK ────────────────────────────────────────────────
 function useRealtimeAttendance() {
   // ✅ FIX: Create supabase client inside the hook so it runs in the browser
@@ -349,6 +382,30 @@ function useRealtimeAttendance() {
     if (start<=today&&today<=end) setAbsentIds(prev=>{ const n=new Set(prev); n.delete(staffId); return n })
   },[today, supabase])
 
+  // ─── TOAST NOTIFICATION ──────────────────────────────────────────────────────
+  const showToast = (text:string, icon:string, color:string) => {
+    setToastMsg({text,icon,color})
+    setTimeout(()=>setToastMsg(null), 3000)
+  }
+
+  // ─── LOG PUNCH EVENT ──────────────────────────────────────────────────────
+  const logPunchEvent = async(staffId:string, eventType:string, stationId?:string, autoLogged=false, notes='')=>{
+    const sb = getSupabase(); if (!sb) return
+    const person = ALL_PEOPLE.find(p=>p.id===staffId)
+    if (!person) return
+    await sb.from('punch_events').insert({
+      staff_id:staffId, event_type:eventType,
+      station_id:stationId||null,
+      shift_date:getToday(), shift:person.shift,
+      logged_at:new Date().toISOString(),
+      auto_logged:autoLogged, notes
+    })
+    if (!autoLogged) {
+      const info = PUNCH_EVENTS.find(e=>e.id===eventType)
+      if (info) showToast(`${info.label} logged at ${new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}`, info.icon, info.color)
+    }
+  }
+
   const toggleStation = useCallback(async(stationId: string, actorId?: string)=>{
     const next = new Set(disabledStations)
     const action = next.has(stationId) ? 'enabled' : 'disabled'
@@ -365,6 +422,24 @@ function useRealtimeAttendance() {
       await supabase.from('station_logs').insert({
         station_id:stationId, action, actioned_by:actorId||'unknown', actioned_at:new Date().toISOString()
       })
+      // Auto-log affected DCs as waiting_station_down
+      if (action === 'disabled') {
+        const affectedDCs = [...ROSTER.s1, ...ROSTER.s2].filter(m=>{
+          const rot = m.shift===1 ? ROTATION_S1 : ROTATION_S2
+          const dayRot = rot[String(getDayIndex())]
+          if (!dayRot || !m.pod) return false
+          const podStations = dayRot[m.pod] as string[]|undefined
+          return podStations && podStations.includes(stationId)
+        })
+        for (const dc of affectedDCs) {
+          await supabase.from('punch_events').insert({
+            staff_id:dc.id, event_type:'waiting_station_down',
+            station_id:stationId, shift_date:getToday(), shift:dc.shift,
+            logged_at:new Date().toISOString(), auto_logged:true,
+            notes:`Station ${stationId} disabled by ${actorId||'lead'}`
+          })
+        }
+      }
     } catch(e){ console.error('toggleStation error:',e) }
   },[disabledStations, supabase])
 
@@ -407,12 +482,41 @@ export default function Home() {
   const [adhocPendingConfirm, setAdhocPendingConfirm] = useState<any|null>(null)
   const [loginStats, setLoginStats] = useState<any[]>([])
   const [stationLogs, setStationLogs] = useState<any[]>([])
-  const [analyticsTab, setAnalyticsTab] = useState<'hours'|'timeoff'|'logins'|'stations'>('hours')
+  const [analyticsTab, setAnalyticsTab] = useState<'hours'|'timeoff'|'logins'|'stations'|'events'>('hours')
+  const [toastMsg, setToastMsg] = useState<{text:string,icon:string,color:string}|null>(null)
+  // Punch system state
+  const [punchEvents, setPunchEvents] = useState<any[]>([])
+  const [todayEvents, setTodayEvents] = useState<any[]>([])
+  const [liveStatus, setLiveStatus] = useState<Record<string,{event:string,station?:string,since:Date}>>({})
+  const [analyticsDate, setAnalyticsDate] = useState<'today'|'week'>('today')
+  const [analyticsWeekOffset, setAnalyticsWeekOffset] = useState(0)
   const [overrides, setOverrides] = useState<Record<string,string>>({})
   const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
   const [showReassign, setShowReassign] = useState<string|null>(null)
 
-  useEffect(()=>{ const t=setInterval(()=>setClock(getClockTime()),1000); return ()=>clearInterval(t) },[])
+  useEffect(()=>{ 
+    const t=setInterval(()=>{
+      setClock(getClockTime())
+      // Auto punch-out check
+      if (loggedIn && selectedUser && currentUser) {
+        const nowM = new Date().getHours()*60+new Date().getMinutes()
+        const endMin = getShiftEndMin(currentUser.shift)
+        const myLastEvent = todayEvents.filter((e:any)=>e.staff_id===selectedUser).slice(-1)[0]
+        if (nowM >= endMin && myLastEvent && myLastEvent.event_type !== 'punch_out') {
+          const sb = getSupabase()
+          if (sb) {
+            sb.from('punch_events').insert({
+              staff_id:selectedUser, event_type:'punch_out',
+              shift_date:getToday(), shift:currentUser.shift,
+              logged_at:new Date().toISOString(), auto_logged:true,
+              notes:'Auto punch-out at shift end'
+            }).then(()=>{})
+          }
+        }
+      }
+    },1000); 
+    return ()=>clearInterval(t) 
+  },[loggedIn, selectedUser, todayEvents])
 
   // Load adhoc tasks, login stats, station logs on login
   useEffect(()=>{
@@ -435,6 +539,34 @@ export default function Home() {
       }
     })
 
+    // Load today's punch events
+    sb.from('punch_events').select('*')
+      .eq('shift_date', getToday())
+      .order('logged_at', {ascending: true})
+      .then(({data})=>{
+        if (data) {
+          setTodayEvents(data)
+          // Build live status map
+          const statusMap: Record<string,{event:string,station?:string,since:Date}> = {}
+          data.forEach((e:any)=>{
+            statusMap[e.staff_id] = {event:e.event_type, station:e.station_id, since:new Date(e.logged_at)}
+          })
+          setLiveStatus(statusMap)
+        }
+      })
+
+    // Real-time punch events subscription
+    const punchChannel = sb.channel('punch-live')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'punch_events',
+        filter:`shift_date=eq.${getToday()}`},
+        (payload:any)=>{
+          setTodayEvents(prev=>[...prev, payload.new])
+          setLiveStatus(prev=>({...prev,
+            [payload.new.staff_id]:{event:payload.new.event_type,station:payload.new.station_id,since:new Date(payload.new.logged_at)}
+          }))
+        }
+      ).subscribe()
+
     // Real-time subscription for new adhoc tasks (so leads get notified without refresh)
     const adhocChannel = sb.channel('adhoc-pending')
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'adhoc_tasks'},
@@ -451,7 +583,10 @@ export default function Home() {
           if (fresh) setAdhocTasks(fresh)
         }
       ).subscribe()
-    return ()=>{ sb.removeChannel(adhocChannel) }
+    return ()=>{ 
+      sb.removeChannel(adhocChannel)
+      sb.removeChannel(punchChannel)
+    }
   },[loggedIn, selectedUser])
 
   const pool       = ROSTER[`s${shift}` as 's1'|'s2']
@@ -787,6 +922,9 @@ export default function Home() {
     mine:'My Schedule', team:'Team Schedule', roster:'Roster',
     timeoff:'Time Off', adhoc:'Adhoc Tasks', rotation:'Rotation', analytics:'Analytics'
   }
+  const analyticsTabLabels: Record<string,string> = {
+    events:'Events', hours:'Station Hours', timeoff:'Time Off', logins:'App Usage', stations:'Station Uptime'
+  }
 
   const nowMin = new Date().getHours()*60+new Date().getMinutes()
   const myActiveBlock = myTimeline.find(t=>{
@@ -823,7 +961,18 @@ export default function Home() {
                 Move to {STATION_INFO[myNextBlock.station]?.label} - {STATION_INFO[myNextBlock.station]?.task}
               </div>
             </div>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'6px'}}>
             <div style={{fontSize:'40px',fontWeight:'800',fontFamily:'monospace'}}>6 MIN</div>
+            {selectedUser && currentUser && (
+              <button onClick={async()=>{
+                await logPunchEvent(selectedUser,'transition',myNextBlock?.station||undefined)
+              }} style={{padding:'6px 14px',borderRadius:'8px',border:'none',
+                background:'rgba(255,255,255,0.25)',color:'white',cursor:'pointer',
+                fontWeight:'700',fontSize:'11px'}}>
+                ✓ I'm Transitioning Now
+              </button>
+            )}
+          </div>
           </div>
         )}
 
@@ -899,6 +1048,22 @@ export default function Home() {
                 borderRadius:'6px',padding:'4px 10px',cursor:'pointer',fontSize:'12px',fontWeight:'700'}}>
               Review
             </button>
+          </div>
+        )}
+
+        {/* TOAST NOTIFICATION */}
+        {toastMsg && (
+          <div style={{position:'fixed',bottom:'24px',left:'50%',transform:'translateX(-50%)',
+            zIndex:9999,padding:'12px 20px',borderRadius:'12px',
+            background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.15)',
+            border:`2px solid ${toastMsg.color}`,
+            display:'flex',alignItems:'center',gap:'10px',
+            animation:'slideUp 0.3s ease',minWidth:'240px',maxWidth:'340px'}}>
+            <span style={{fontSize:'22px'}}>{toastMsg.icon}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:'13px',fontWeight:'700',color:toastMsg.color}}>✓ Logged</div>
+              <div style={{fontSize:'12px',color:'#374151',marginTop:'1px'}}>{toastMsg.text}</div>
+            </div>
           </div>
         )}
 
@@ -1337,6 +1502,101 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* PUNCH EVENT PANEL */}
+            {(()=>{
+              const myEvents = todayEvents.filter((e:any)=>e.staff_id===selectedUser)
+              const lastEvent = myEvents.slice(-1)[0]
+              const lastInfo = lastEvent ? getPunchInfo(lastEvent.event_type) : null
+              const isPunchedIn = lastEvent && lastEvent.event_type !== 'punch_out'
+              const isPunchedOut = lastEvent?.event_type === 'punch_out'
+              
+              // Which buttons to show based on last event
+              const showButtons = ()=>{
+                if (!lastEvent || isPunchedOut) return ['punch_in']
+                const e = lastEvent.event_type
+                if (e==='punch_in'||e==='at_station'||e==='return_lunch'||e==='return_break'||e==='return_car_move'||e==='return_bathroom'||e==='transition') 
+                  return ['at_station','waiting_station','break','car_move','bathroom','lunch','punch_out']
+                if (e==='waiting_station'||e==='waiting_station_down') 
+                  return ['at_station','break','bathroom','punch_out']
+                if (e==='break') return ['return_break','punch_out']
+                if (e==='car_move') return ['return_car_move','punch_out']
+                if (e==='bathroom') return ['return_bathroom','punch_out']
+                if (e==='lunch') return ['return_lunch','punch_out']
+                if (e==='adhoc_task') return ['at_station','punch_out']
+                return ['at_station','punch_out']
+              }
+
+              return (
+                <div style={{marginTop:'10px',padding:'12px',background:'#f9fafb',
+                  borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+                  <div style={{fontSize:'11px',fontWeight:'600',color:'#6b7280',
+                    textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>
+                    My Activity Log
+                  </div>
+                  {lastInfo && (
+                    <div style={{display:'flex',alignItems:'center',gap:'8px',
+                      padding:'6px 10px',borderRadius:'8px',marginBottom:'8px',
+                      background:lastInfo.bg,border:`1px solid ${lastInfo.color}22`}}>
+                      <span style={{fontSize:'16px'}}>{lastInfo.icon}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:'12px',fontWeight:'700',color:lastInfo.color}}>
+                          {lastInfo.label}
+                        </div>
+                        <div style={{fontSize:'10px',color:'#6b7280'}}>
+                          Since {new Date(lastEvent.logged_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+                          {' · '}{formatDuration(Date.now()-new Date(lastEvent.logged_at).getTime())} ago
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'6px'}}>
+                    {showButtons().map(btnId=>{
+                      const info = getPunchInfo(btnId)
+                      return (
+                        <button key={btnId} onClick={async()=>{
+                          if (!selectedUser||!currentUser) return
+                          // Transition = also logs at_station for next station
+                          if (btnId==='transition' && myNextBlock?.station) {
+                            await logPunchEvent(selectedUser,'transition',myNextBlock.station)
+                          } else {
+                            const myStation = myActiveBlock?.station
+                            await logPunchEvent(selectedUser,btnId,myStation)
+                          }
+                        }}
+                          style={{padding:'8px',borderRadius:'8px',border:`1px solid ${info.color}44`,
+                            background:info.bg,color:info.color,cursor:'pointer',
+                            fontSize:'11px',fontWeight:'700',display:'flex',
+                            alignItems:'center',gap:'5px',justifyContent:'center'}}>
+                          <span>{info.icon}</span>{info.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Today's event log */}
+                  {myEvents.length>0 && (
+                    <div style={{marginTop:'10px',maxHeight:'150px',overflowY:'auto'}}>
+                      <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'4px',fontWeight:'600',
+                        textTransform:'uppercase',letterSpacing:'0.05em'}}>Today's log</div>
+                      {myEvents.slice().reverse().map((e:any,i:number)=>{
+                        const info = getPunchInfo(e.event_type)
+                        return (
+                          <div key={i} style={{display:'flex',alignItems:'center',gap:'6px',
+                            padding:'3px 0',borderBottom:'1px solid #f3f4f6',fontSize:'11px'}}>
+                            <span>{info.icon}</span>
+                            <span style={{color:info.color,fontWeight:'600',flex:1}}>{info.label}</span>
+                            <span style={{color:'#9ca3af',fontFamily:'monospace',fontSize:'10px'}}>
+                              {new Date(e.logged_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+                            </span>
+                            {e.auto_logged && <span style={{fontSize:'9px',color:'#9ca3af'}}>auto</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -1369,6 +1629,55 @@ export default function Home() {
                 color:absentIds.has(currentUser.id)?'#0e7490':'#dc2626'}}>
               {absentIds.has(currentUser.id)?'Mark myself PRESENT':'I will be OUT today'}
             </button>
+            {/* DA Punch Panel */}
+            {(()=>{
+              const myEvents = todayEvents.filter((e:any)=>e.staff_id===selectedUser)
+              const lastEvent = myEvents.slice(-1)[0]
+              const lastInfo = lastEvent ? getPunchInfo(lastEvent.event_type) : null
+              const showButtons = ()=>{
+                if (!lastEvent || lastEvent.event_type==='punch_out') return ['punch_in']
+                const e = lastEvent.event_type
+                if (e==='punch_in'||e==='at_station'||e.startsWith('return')||e==='transition')
+                  return ['at_station','break','bathroom','lunch','punch_out']
+                if (e==='break') return ['return_break','punch_out']
+                if (e==='bathroom') return ['return_bathroom','punch_out']
+                if (e==='lunch') return ['return_lunch','punch_out']
+                return ['at_station','punch_out']
+              }
+              return (
+                <div style={{marginTop:'0',marginBottom:'8px',padding:'12px',background:'#f9fafb',
+                  borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+                  <div style={{fontSize:'11px',fontWeight:'600',color:'#6b7280',
+                    textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>My Activity Log</div>
+                  {lastInfo && (
+                    <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 10px',
+                      borderRadius:'8px',marginBottom:'8px',background:lastInfo.bg}}>
+                      <span>{lastInfo.icon}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:'12px',fontWeight:'700',color:lastInfo.color}}>{lastInfo.label}</div>
+                        <div style={{fontSize:'10px',color:'#6b7280'}}>
+                          Since {new Date(lastEvent.logged_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'6px'}}>
+                    {showButtons().map(btnId=>{
+                      const info = getPunchInfo(btnId)
+                      return (
+                        <button key={btnId} onClick={()=>logPunchEvent(selectedUser||'',btnId)}
+                          style={{padding:'8px',borderRadius:'8px',border:`1px solid ${info.color}44`,
+                            background:info.bg,color:info.color,cursor:'pointer',
+                            fontSize:'11px',fontWeight:'700',display:'flex',
+                            alignItems:'center',gap:'5px',justifyContent:'center'}}>
+                          <span>{info.icon}</span>{info.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
             <div style={{display:'flex',gap:'8px'}}>
               <button onClick={()=>{setShowSetPin(v=>!v);setNewPin('');setNewPinConfirm('');setPinSetMsg('')}}
                 style={{flex:1,padding:'7px',borderRadius:'8px',border:'1px solid #e5e7eb',
@@ -1483,6 +1792,46 @@ export default function Home() {
         {/* ── MY SCHEDULE TAB ──────────────────────────────────────────────── */}
         {tab==='mine' && (
           <div>
+            {/* MY TIME OFF */}
+            {(vacationMap[selectedUser||'']||[]).length > 0 && (
+              <div style={{background:'white',borderRadius:'12px',border:'1px solid #bfdbfe',
+                padding:'14px',marginBottom:'12px'}}>
+                <div style={{fontSize:'13px',fontWeight:'700',marginBottom:'8px',color:'#1d4ed8',
+                  display:'flex',alignItems:'center',gap:'6px'}}>
+                  <span>📅</span> My Upcoming Time Off
+                </div>
+                {(vacationMap[selectedUser||'']||[]).map(v=>{
+                  const today = getToday()
+                  const isNow = v.start<=today&&today<=v.end
+                  const days = Math.round((new Date(v.end+'T12:00').getTime()-new Date(v.start+'T12:00').getTime())/86400000)+1
+                  return (
+                    <div key={v.id} style={{display:'flex',alignItems:'center',gap:'10px',
+                      padding:'8px 10px',borderRadius:'8px',marginBottom:'4px',
+                      background:isNow?'#fee2e2':'#eff6ff',
+                      border:`1px solid ${isNow?'#fca5a5':'#bfdbfe'}`}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:'12px',fontWeight:'600',
+                          color:isNow?'#dc2626':'#1d4ed8'}}>
+                          {v.start===v.end
+                            ? new Date(v.start+'T12:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+                            : `${new Date(v.start+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${new Date(v.end+'T12:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
+                          }
+                        </div>
+                        <div style={{fontSize:'10px',color:'#6b7280',marginTop:'1px'}}>
+                          {days} day{days!==1?'s':''} · {isNow?'You are currently out':'Upcoming'}
+                        </div>
+                      </div>
+                      <span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'10px',
+                        fontWeight:'700',fontFamily:'monospace',
+                        background:isNow?'#dc2626':'#1d4ed8',color:'white'}}>
+                        {isNow?'OUT NOW':'APPROVED'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
             {!myTimeline.length ? (
               <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',
                 padding:'32px',textAlign:'center',color:'#9ca3af',fontSize:'13px'}}>
@@ -1686,6 +2035,46 @@ export default function Home() {
         {/* ── TEAM SCHEDULE TAB ────────────────────────────────────────────── */}
         {tab==='team' && (
           <div>
+
+            {/* LIVE STATUS BOARD */}
+            <div style={{background:'#1d4ed8',borderRadius:'12px',padding:'14px',marginBottom:'12px',
+              border:'2px solid #1e40af'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
+                <div style={{width:'8px',height:'8px',borderRadius:'50%',background:'#22c55e',
+                  boxShadow:'0 0 6px #22c55e'}}/>
+                <span style={{fontWeight:'800',fontSize:'13px',color:'white'}}>Live Team Status</span>
+                <span style={{fontSize:'10px',color:'rgba(255,255,255,0.6)',marginLeft:'auto'}}>
+                  {new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+                </span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:'6px'}}>
+                {pool.filter(m=>!isGuest(m.id)&&!isSuperAdmin(m.id)&&m.role!=='ANALYTICS_ADMIN'&&!absentIds.has(m.id)).map(m=>{
+                  const status = liveStatus[m.id]
+                  const info = status ? getPunchInfo(status.event) : null
+                  const sinceMs = status ? Date.now()-status.since.getTime() : 0
+                  return (
+                    <div key={m.id} style={{padding:'8px 10px',borderRadius:'8px',
+                      background:info?info.bg:'rgba(255,255,255,0.1)',
+                      border:`1px solid ${info?info.color+'44':'rgba(255,255,255,0.2)'}`}}>
+                      <div style={{fontSize:'11px',fontWeight:'700',
+                        color:info?info.color:'rgba(255,255,255,0.7)',marginBottom:'2px'}}>
+                        {m.name.split(' ')[0]}
+                      </div>
+                      <div style={{fontSize:'10px',color:info?info.color:'rgba(255,255,255,0.5)',
+                        display:'flex',alignItems:'center',gap:'4px'}}>
+                        {info?<span>{info.icon}</span>:<span>⬜</span>}
+                        <span>{info?info.label:'Not punched in'}</span>
+                      </div>
+                      {status && (
+                        <div style={{fontSize:'9px',color:'#6b7280',marginTop:'2px',fontFamily:'monospace'}}>
+                          {formatDuration(sinceMs)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
             {disabledStations.size>0&&(
               <div style={{padding:'10px 14px',background:'#fef2f2',borderRadius:'10px',
                 border:'1px solid #fca5a5',marginBottom:'12px'}}>
@@ -2450,18 +2839,230 @@ export default function Home() {
         {/* ── ANALYTICS TAB — Yban, James, Charlene only ───────────────────── */}
         {tab==='analytics' && isAnalyticsAdmin(selectedUser) && (
           <div>
+            {/* Date range toggle */}
+            <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',
+              padding:'10px 14px',background:'white',borderRadius:'10px',border:'1px solid #e5e7eb'}}>
+              <div style={{display:'flex',gap:'4px'}}>
+                <button onClick={()=>setAnalyticsDate('today')}
+                  style={{padding:'5px 12px',borderRadius:'6px',border:'1px solid',fontSize:'11px',
+                    fontWeight:'600',cursor:'pointer',
+                    borderColor:analyticsDate==='today'?'#059669':'#e5e7eb',
+                    background:analyticsDate==='today'?'#d1fae5':'white',
+                    color:analyticsDate==='today'?'#059669':'#374151'}}>Today</button>
+                <button onClick={()=>setAnalyticsDate('week')}
+                  style={{padding:'5px 12px',borderRadius:'6px',border:'1px solid',fontSize:'11px',
+                    fontWeight:'600',cursor:'pointer',
+                    borderColor:analyticsDate==='week'?'#059669':'#e5e7eb',
+                    background:analyticsDate==='week'?'#d1fae5':'white',
+                    color:analyticsDate==='week'?'#059669':'#374151'}}>Week</button>
+              </div>
+              {analyticsDate==='week' && (
+                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                  <button onClick={()=>setAnalyticsWeekOffset(w=>w-1)}
+                    style={{padding:'4px 8px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                      background:'white',cursor:'pointer',fontSize:'12px'}}>←</button>
+                  <span style={{fontSize:'11px',color:'#374151',fontWeight:'600'}}>
+                    {(()=>{
+                      const d = new Date(); d.setDate(d.getDate()+analyticsWeekOffset*7)
+                      const start = new Date(d); start.setDate(d.getDate()-d.getDay())
+                      const end = new Date(start); end.setDate(start.getDate()+6)
+                      return start.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+end.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+                    })()}
+                  </span>
+                  <button onClick={()=>setAnalyticsWeekOffset(w=>Math.min(0,w+1))}
+                    style={{padding:'4px 8px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                      background:'white',cursor:'pointer',fontSize:'12px'}}>→</button>
+                </div>
+              )}
+              {/* Export buttons */}
+              <div style={{marginLeft:'auto',display:'flex',gap:'6px'}}>
+                <button onClick={()=>{
+                  const rows = [['Name','Event','Station','Date','Time','Auto']]
+                  todayEvents.forEach((e:any)=>{
+                    const p = ALL_PEOPLE.find(x=>x.id===e.staff_id)
+                    rows.push([p?.name||e.staff_id, getPunchInfo(e.event_type).label,
+                      e.station_id||'', e.shift_date,
+                      new Date(e.logged_at).toLocaleTimeString(), e.auto_logged?'Yes':'No'])
+                  })
+                  const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('
+')
+                  const blob = new Blob([csv],{type:'text/csv'})
+                  const a = document.createElement('a'); a.href=URL.createObjectURL(blob)
+                  a.download=`data-engine-events-${getToday()}.csv`; a.click()
+                }} style={{padding:'5px 10px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                  background:'white',cursor:'pointer',fontSize:'11px',fontWeight:'600',color:'#374151'}}>
+                  ⬇ CSV
+                </button>
+                <button onClick={async()=>{
+                  // Excel export using SheetJS-style CSV with BOM for Excel compatibility
+                  const rows = [['Name','Role','Shift','Event','Station','Date','Time','Duration (min)','Auto-logged']]
+                  const sorted = [...todayEvents].sort((a,b)=>a.staff_id.localeCompare(b.staff_id)||a.logged_at.localeCompare(b.logged_at))
+                  sorted.forEach((e:any,i:number)=>{
+                    const p = ALL_PEOPLE.find(x=>x.id===e.staff_id)
+                    const nextEvent = sorted[i+1]
+                    const dur = nextEvent && nextEvent.staff_id===e.staff_id
+                      ? Math.round((new Date(nextEvent.logged_at).getTime()-new Date(e.logged_at).getTime())/60000)
+                      : ''
+                    rows.push([p?.name||e.staff_id, p?.role||'', String(p?.shift||''),
+                      getPunchInfo(e.event_type).label, e.station_id||'', e.shift_date,
+                      new Date(e.logged_at).toLocaleTimeString(), String(dur), e.auto_logged?'Yes':'No'])
+                  })
+                  const csv = '﻿'+rows.map(r=>r.join('	')).join('
+')
+                  const blob = new Blob([csv],{type:'application/vnd.ms-excel'})
+                  const a = document.createElement('a'); a.href=URL.createObjectURL(blob)
+                  a.download=`data-engine-events-${getToday()}.xls`; a.click()
+                }} style={{padding:'5px 10px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                  background:'white',cursor:'pointer',fontSize:'11px',fontWeight:'600',color:'#374151'}}>
+                  ⬇ Excel
+                </button>
+              </div>
+            </div>
+
             <div style={{display:'flex',gap:'6px',marginBottom:'12px',flexWrap:'wrap'}}>
-              {(['hours','timeoff','logins','stations'] as const).map(t=>(
-                <button key={t} onClick={()=>setAnalyticsTab(t)}
+              {(['events','hours','timeoff','logins','stations'] as const).map(t=>(
+                <button key={t} onClick={()=>setAnalyticsTab(t as any)}
                   style={{padding:'7px 14px',borderRadius:'8px',cursor:'pointer',
                     border:'1px solid',fontWeight:'600',fontSize:'11px',textTransform:'uppercase',
                     borderColor:analyticsTab===t?'#059669':'#e5e7eb',
                     background:analyticsTab===t?'#d1fae5':'white',
                     color:analyticsTab===t?'#059669':'#374151'}}>
-                  {t==='hours'?'Station Hours':t==='timeoff'?'Time Off':t==='logins'?'App Usage':'Station Uptime'}
+                  {analyticsTabLabels[t]||t}
                 </button>
               ))}
             </div>
+
+            {/* EVENTS BREAKDOWN */}
+            {analyticsTab==='events' && (
+              <div>
+                {/* Per person breakdown */}
+                {[1,2].map(s=>{
+                  const shiftPool = ROSTER[s===1?'s1':'s2'].filter(m=>!isGuest(m.id)&&m.role!=='ANALYTICS_ADMIN'&&!isSuperAdmin(m.id))
+                  const shiftEvents = todayEvents.filter((e:any)=>shiftPool.find(p=>p.id===e.staff_id))
+                  if (!shiftEvents.length) return null
+                  
+                  // Per person summary
+                  const byPerson: Record<string,Record<string,number>> = {}
+                  shiftPool.forEach(p=>{ byPerson[p.id]={} })
+                  shiftEvents.forEach((e:any,i:number)=>{
+                    const next = shiftEvents[i+1]
+                    if (!byPerson[e.staff_id]) byPerson[e.staff_id]={}
+                    const dur = next && next.staff_id===e.staff_id
+                      ? (new Date(next.logged_at).getTime()-new Date(e.logged_at).getTime())/60000
+                      : 0
+                    byPerson[e.staff_id][e.event_type] = (byPerson[e.staff_id][e.event_type]||0)+dur
+                  })
+
+                  // Team summary
+                  const teamSummary: Record<string,number> = {}
+                  Object.values(byPerson).forEach(personEvents=>{
+                    Object.entries(personEvents).forEach(([evt,mins])=>{
+                      teamSummary[evt]=(teamSummary[evt]||0)+mins
+                    })
+                  })
+                  const collectionEvents = ['at_station','transition']
+                  const overheadEvents = ['waiting_station','waiting_station_down','break','car_move','bathroom','lunch','adhoc_task']
+                  const totalCollectionMins = Object.entries(teamSummary).filter(([k])=>collectionEvents.includes(k)).reduce((a,[,v])=>a+v,0)
+                  const totalOverheadMins = Object.entries(teamSummary).filter(([k])=>overheadEvents.includes(k)).reduce((a,[,v])=>a+v,0)
+                  const totalMins = totalCollectionMins+totalOverheadMins
+                  const collectionPct = totalMins>0?Math.round(totalCollectionMins/totalMins*100):0
+
+                  return (
+                    <div key={s} style={{marginBottom:'16px'}}>
+                      <div style={{fontWeight:'700',fontSize:'14px',marginBottom:'8px',color:'#059669',
+                        padding:'8px 12px',background:'#d1fae5',borderRadius:'8px',
+                        display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <span>Shift {s} — Event Breakdown</span>
+                        <span style={{fontSize:'12px'}}>
+                          Collection: {Math.round(totalCollectionMins)}m ({collectionPct}%) · Overhead: {Math.round(totalOverheadMins)}m ({100-collectionPct}%)
+                        </span>
+                      </div>
+
+                      {/* Team summary bar */}
+                      <div style={{background:'white',borderRadius:'10px',border:'1px solid #e5e7eb',
+                        padding:'12px',marginBottom:'10px'}}>
+                        <div style={{fontSize:'11px',fontWeight:'600',color:'#6b7280',marginBottom:'8px',
+                          textTransform:'uppercase',letterSpacing:'0.05em'}}>Team Summary</div>
+                        <div style={{display:'flex',height:'24px',borderRadius:'6px',overflow:'hidden',marginBottom:'8px'}}>
+                          {Object.entries(teamSummary).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([evt,mins])=>{
+                            const info = getPunchInfo(evt)
+                            const pct = totalMins>0?(mins/totalMins*100):0
+                            return pct>1?(
+                              <div key={evt} style={{width:`${pct}%`,background:info.color,
+                                display:'flex',alignItems:'center',justifyContent:'center',
+                                fontSize:'8px',color:'white',fontWeight:'700',overflow:'hidden'}}>
+                                {pct>5?`${Math.round(pct)}%`:''}
+                              </div>
+                            ):null
+                          })}
+                        </div>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
+                          {Object.entries(teamSummary).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([evt,mins])=>{
+                            const info = getPunchInfo(evt)
+                            return (
+                              <span key={evt} style={{fontSize:'10px',padding:'2px 6px',borderRadius:'4px',
+                                background:info.bg,color:info.color,fontWeight:'600'}}>
+                                {info.icon} {info.label}: {Math.round(mins)}m
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Per person */}
+                      {shiftPool.filter(p=>byPerson[p.id]&&Object.keys(byPerson[p.id]).length>0).map(person=>{
+                        const events = byPerson[person.id]
+                        const personTotal = Object.values(events).reduce((a,b)=>a+b,0)
+                        const personCollection = Object.entries(events).filter(([k])=>collectionEvents.includes(k)).reduce((a,[,v])=>a+v,0)
+                        const personPct = personTotal>0?Math.round(personCollection/personTotal*100):0
+                        return (
+                          <div key={person.id} style={{background:'white',borderRadius:'10px',
+                            border:'1px solid #e5e7eb',padding:'12px',marginBottom:'6px'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                              <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                                display:'flex',alignItems:'center',justifyContent:'center',
+                                fontSize:'9px',fontWeight:'700',
+                                background:COLORS[person.role]?.[0]||'#f3f4f6',
+                                color:COLORS[person.role]?.[1]||'#374151'}}>
+                                {person.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                              </div>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:'12px',fontWeight:'700'}}>{person.name}</div>
+                                <div style={{fontSize:'10px',color:'#6b7280'}}>{person.role} · Pod {person.pod||'—'}</div>
+                              </div>
+                              <div style={{textAlign:'right'}}>
+                                <div style={{fontSize:'12px',fontWeight:'700',color:'#059669'}}>
+                                  {personPct}% collecting
+                                </div>
+                                <div style={{fontSize:'10px',color:'#6b7280'}}>{Math.round(personTotal)}m total</div>
+                              </div>
+                            </div>
+                            <div style={{display:'flex',height:'12px',borderRadius:'4px',overflow:'hidden',marginBottom:'6px'}}>
+                              {Object.entries(events).filter(([,v])=>v>0).map(([evt,mins])=>{
+                                const info=getPunchInfo(evt)
+                                const pct=personTotal>0?(mins/personTotal*100):0
+                                return pct>0?<div key={evt} style={{width:`${pct}%`,background:info.color}}/>:null
+                              })}
+                            </div>
+                            <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
+                              {Object.entries(events).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([evt,mins])=>{
+                                const info=getPunchInfo(evt)
+                                return (
+                                  <span key={evt} style={{fontSize:'9px',padding:'1px 5px',borderRadius:'3px',
+                                    background:info.bg,color:info.color,fontWeight:'600'}}>
+                                    {info.icon} {Math.round(mins)}m
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* STATION HOURS PER PERSON PER SHIFT */}
             {analyticsTab==='hours' && (
