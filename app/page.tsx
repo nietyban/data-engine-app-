@@ -962,17 +962,17 @@ export default function Home() {
               </div>
             </div>
             <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'6px'}}>
-            <div style={{fontSize:'40px',fontWeight:'800',fontFamily:'monospace'}}>6 MIN</div>
-            {selectedUser && currentUser && (
-              <button onClick={async()=>{
-                await logPunchEvent(selectedUser,'transition',myNextBlock?.station||undefined)
-              }} style={{padding:'6px 14px',borderRadius:'8px',border:'none',
-                background:'rgba(255,255,255,0.25)',color:'white',cursor:'pointer',
-                fontWeight:'700',fontSize:'11px'}}>
-                ✓ I'm Transitioning Now
-              </button>
-            )}
-          </div>
+              <div style={{fontSize:'40px',fontWeight:'800',fontFamily:'monospace'}}>6 MIN</div>
+              {selectedUser && currentUser && (
+                <button onClick={async()=>{
+                  await logPunchEvent(selectedUser,'transition',myNextBlock?.station||undefined)
+                }} style={{padding:'6px 14px',borderRadius:'8px',border:'none',
+                  background:'rgba(255,255,255,0.25)',color:'white',cursor:'pointer',
+                  fontWeight:'700',fontSize:'11px'}}>
+                  ✓ I'm Transitioning Now
+                </button>
+              )}
+            </div>
           </div>
         )}
 
