@@ -52,7 +52,7 @@ const ROSTER = {
 const ALL_PEOPLE = [...ROSTER.s1, ...ROSTER.s2]
 
 // ─── STATION INFO ─────────────────────────────────────────────────────────────
-const STATION_INFO: Record<string,{label:string,task:string,dot:string,shift:'s1'|'s2'|'both',solo:boolean}> = {
+const STATION_INFO: Record<string,any> = {
   ymc1: {label:'YMC 1', task:'Policy Eval (Asana)', dot:'#4f9eff', shift:'s1', solo:false},
   ymc2: {label:'YMC 2', task:'LEGO Stacking',       dot:'#f59e0b', shift:'s1', solo:false},
   ymc3: {label:'YMC 3', task:'Tote Stack HITL',     dot:'#2dd4bf', shift:'s1', solo:false},
@@ -64,7 +64,7 @@ const STATION_INFO: Record<string,{label:string,task:string,dot:string,shift:'s1
 }
 
 // ─── 1ST SHIFT SCHEDULE ───────────────────────────────────────────────────────
-const ROTATION_S1: Record<string,Record<string,[string,string,string,string]>> = {
+const ROTATION_S1: any = {
   '0': { P1:['ymc1','ymc2','uc1','ymc3'],  P2:['ymc2','ymc3','uc2','ymc4'],  P3:['ymc3','ymc4','ymc7','ymc1'],  P4:['ymc4','ymc1','g1','ymc2']  },
   '1': { P1:['ymc2','ymc3','uc1','ymc4'],  P2:['ymc3','ymc4','uc2','ymc1'],  P3:['ymc4','ymc1','ymc7','ymc2'],  P4:['ymc1','ymc2','g1','ymc3']  },
   '2': { P1:['ymc3','ymc4','uc1','ymc1'],  P2:['ymc4','ymc1','uc2','ymc2'],  P3:['ymc1','ymc2','ymc7','ymc3'],  P4:['ymc2','ymc3','g1','ymc4']  },
@@ -79,7 +79,7 @@ const LUNCH_NOTE_A = 'Your lunch · 11:00 AM – 12:00 PM · Person B covers sol
 const LUNCH_NOTE_B = 'Your lunch · 12:00 PM – 1:00 PM · Person A covers solo'
 
 // ─── 2ND SHIFT SCHEDULE ───────────────────────────────────────────────────────
-const ROTATION_S2: Record<string,Record<string,[string,string,string,string]>> = {
+const ROTATION_S2: any = {
   '0': { PA:['ymc7','ymc7','g1','uc1'],    PB:['g1','g1','ymc7','uc2'],     PC:['uc1','uc2','ymc7','g1'],    PD:['uc2','uc1','g1','ymc7']  },
   '1': { PA:['g1','g1','ymc7','uc1'],      PB:['uc1','uc2','g1','ymc7'],    PC:['ymc7','ymc7','uc1','g1'],   PD:['uc2','uc1','ymc7','g1']  },
   '2': { PA:['uc1','uc2','g1','ymc7'],     PB:['ymc7','ymc7','uc1','g1'],   PC:['g1','g1','ymc7','uc1'],     PD:['uc2','uc1','g1','ymc7']  },
@@ -271,11 +271,11 @@ function useRealtimeAttendance() {
   const [supabase] = useState(() => getSupabase())
 
   const today = getToday()
-  const [absentIds, setAbsentIds] = useState<Set<string>>(new Set(['gr']))
+  const [absentIds, setAbsentIds] = useState<any>(new Set(['gr']))
   const [loading, setLoading] = useState(true)
   const [synced, setSynced] = useState(false)
-  const [vacationMap, setVacationMap] = useState<Record<string,{start:string,end:string,id:string}[]>>({})
-  const [disabledStations, setDisabledStations] = useState<Set<string>>(new Set())
+  const [vacationMap, setVacationMap] = useState<any>({})
+  const [disabledStations, setDisabledStations] = useState<any>(new Set())
 
   // Load attendance from Supabase on mount — ALWAYS read DB first
   useEffect(()=>{
@@ -404,7 +404,7 @@ function useRealtimeAttendance() {
           const rot = m.shift===1 ? ROTATION_S1 : ROTATION_S2
           const dayRot = rot[String(getDayIndex())]
           if (!dayRot || !m.pod) return false
-          const podStations = dayRot[m.pod] as string[]|undefined
+          const podStations = dayRot[m.pod] 
           return podStations && podStations.includes(stationId)
         })
         for (const dc of affectedDCs) {
@@ -424,9 +424,9 @@ function useRealtimeAttendance() {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function Home() {
-  const [shift,         setShift]        = useState<1|2>(1)
+  const [shift,         setShift]        = useState<any>(1)
   const [tab,           setTab]          = useState<string>('mine')
-  const [selectedUser,  setSelectedUser] = useState<string|null>(null)
+  const [selectedUser,  setSelectedUser] = useState<any>(null)
   const [loggedIn,      setLoggedIn]     = useState(false)
   const [clock,         setClock]        = useState(getClockTime())
   const [pinStep,       setPinStep]      = useState(false)
@@ -463,12 +463,12 @@ export default function Home() {
   // Punch system state
   const [punchEvents, setPunchEvents] = useState<any[]>([])
   const [todayEvents, setTodayEvents] = useState<any[]>([])
-  const [liveStatus, setLiveStatus] = useState<Record<string,{event:string,station?:string,since:Date}>>({})
+  const [liveStatus, setLiveStatus] = useState<any>({})
   const [analyticsDate, setAnalyticsDate] = useState<string>('today')
   const [analyticsWeekOffset, setAnalyticsWeekOffset] = useState(0)
-  const [overrides, setOverrides] = useState<Record<string,string>>({})
-  const [notifications, setNotifications] = useState<{id:string,msg:string,time:number}[]>([])
-  const [showReassign, setShowReassign] = useState<string|null>(null)
+  const [overrides, setOverrides] = useState<any>({})
+  const [notifications, setNotifications] = useState<any>([])
+  const [showReassign, setShowReassign] = useState<any>(null)
 
   useEffect(()=>{ 
     const t=setInterval(()=>{
@@ -657,7 +657,7 @@ export default function Home() {
   function buildTeamSchedule() {
     const pods = shift===1 ? ['P1','P2','P3','P4'] : ['PA','PB','PC','PD']
     return pods.map(pod=>{
-      const ps = rotation?.[pod] as [string,string,string,string]|undefined
+      const ps = rotation?.[pod] 
       if (!ps) return null
       const members = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id))
       const allPod  = pool.filter(m=>m.pod===pod)
@@ -699,7 +699,7 @@ export default function Home() {
       const presentMembers = podMembers.filter(m=>!absentIds.has(m.id))
       if (presentMembers.length > 0) return
 
-      const stations = rot[pod] as string[]
+      const stations = rot[pod]
       const blocks = podShift===1
         ? [{idx:0,startMin:7*60,endMin:9*60,label:'Block 1'},{idx:1,startMin:9*60,endMin:11*60,label:'Block 2'},{idx:3,startMin:13*60,endMin:15*60,label:'Block 4'}]
         : [{idx:0,startMin:10*60,endMin:12*60,label:'Block 1'},{idx:1,startMin:12*60,endMin:14*60,label:'Block 2'},{idx:2,startMin:14*60,endMin:16*60,label:'Block 3'},{idx:3,startMin:16*60,endMin:18*60,label:'Block 4'}]
@@ -2573,7 +2573,7 @@ export default function Home() {
                               padding:'1px 6px',borderRadius:'4px'}}>TODAY</span>}
                           </td>
                           {pods.map(pod=>{
-                            const sts=rot?.[pod] as string[]|undefined
+                            const sts=rot?.[pod] 
                             if (!sts) return <td key={pod}/>
                             return (
                               <td key={pod} style={{padding:'5px 6px',border:'1px solid #e5e7eb',textAlign:'center'}}>
@@ -2884,8 +2884,7 @@ export default function Home() {
                       e.station_id||'', e.shift_date,
                       new Date(e.logged_at).toLocaleTimeString(), e.auto_logged?'Yes':'No'])
                   })
-                  const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('
-')
+                  const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n')
                   const blob = new Blob([csv],{type:'text/csv'})
                   const a = document.createElement('a'); a.href=URL.createObjectURL(blob)
                   a.download=`data-engine-events-${getToday()}.csv`; a.click()
@@ -2907,8 +2906,7 @@ export default function Home() {
                       getPunchInfo(e.event_type).label, e.station_id||'', e.shift_date,
                       new Date(e.logged_at).toLocaleTimeString(), String(dur), e.auto_logged?'Yes':'No'])
                   })
-                  const csv = '﻿'+rows.map(r=>r.join('	')).join('
-')
+                  const csv = '\uFEFF'+rows.map(r=>r.join('\t')).join('\n')
                   const blob = new Blob([csv],{type:'application/vnd.ms-excel'})
                   const a = document.createElement('a'); a.href=URL.createObjectURL(blob)
                   a.download=`data-engine-events-${getToday()}.xls`; a.click()
@@ -3077,7 +3075,7 @@ export default function Home() {
                     members.forEach(m=>{
                       if (!stationHours[m.name]) stationHours[m.name]={}
                       Object.values(rot).forEach(dayRot=>{
-                        const ps = dayRot[pod] as string[]|undefined
+                        const ps = dayRot[pod] 
                         if (!ps) return
                         ps.forEach((stId,idx)=>{
                           if (!stationHours[m.name][stId]) stationHours[m.name][stId]=0
