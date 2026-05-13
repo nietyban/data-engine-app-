@@ -929,14 +929,14 @@ export default function Home() {
   const tabs = isAnalyticsAdmin(selectedUser)
     ? ['team','roster','timeoff','adhoc','rotation','analytics']
     : currentUser?.role==='SUPER_ADMIN'
-    ? ['team','roster','timeoff','adhoc','rotation']
+    ? ['team','roster','timeoff','adhoc','rotation','events']
     : isLead
-    ? ['mine','team','roster','timeoff','adhoc','rotation']
+    ? ['mine','team','roster','timeoff','adhoc','rotation','events']
     : ['mine','team','roster','adhoc','rotation']
 
   const tabLabels: Record<string,string> = {
     mine:'My Schedule', team:'Team Schedule', roster:'Roster',
-    timeoff:'Time Off', adhoc:'Adhoc Tasks', rotation:'Rotation', analytics:'Analytics'
+    timeoff:'Time Off', adhoc:'Adhoc Tasks', rotation:'Rotation', analytics:'Analytics', events:'Cell Uptime'
   }
   const analyticsTabLabels: Record<string,string> = {
     events:'Events', hours:'Station Hours', timeoff:'Time Off', logins:'App Usage', stations:'Station Uptime'
@@ -2537,6 +2537,156 @@ export default function Home() {
                           color:'#dc2626',cursor:'pointer',flexShrink:0}}>Cancel</button>
                     </div>
                   ))}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* ── CELL UPTIME TAB — leads only ─────────────────────────────────── */}
+        {tab==='events' && isLead && (
+          <div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+              marginBottom:'12px'}}>
+              <div style={{fontSize:'13px',fontWeight:'700',color:'#374151'}}>
+                Cell Uptime — Shift {currentUser?.shift}
+              </div>
+              <button onClick={async()=>{
+                const sb=getSupabase(); if(!sb) return
+                const {data}=await sb.from('punch_events').select('*').eq('shift_date',getToday()).order('logged_at',{ascending:true})
+                if(data) setTodayEvents(data)
+              }} style={{padding:'5px 12px',borderRadius:'6px',border:'1px solid #e5e7eb',
+                background:'white',cursor:'pointer',fontSize:'11px',color:'#6b7280',fontWeight:'600'}}>
+                ↻ Refresh
+              </button>
+            </div>
+
+            {(()=>{
+              // Only show DCs and DAs from this lead's shift
+              const myShiftPool = pool.filter((m:any)=>
+                (m.role==='DC'||m.role==='DA')&&!isGuest(m.id)&&!isSuperAdmin(m.id)&&m.role!=='ANALYTICS_ADMIN'
+              )
+              const collectionEvents = ['at_station','transition']
+              const overheadEvents = ['waiting_station','waiting_station_down','break','car_move','bathroom','lunch','adhoc_task']
+
+              if (todayEvents.length===0) return (
+                <div style={{textAlign:'center',padding:'32px',color:'#9ca3af',fontSize:'13px',
+                  background:'white',borderRadius:'12px',border:'1px solid #e5e7eb'}}>
+                  No events logged yet today. Ask your team to punch in.
+                </div>
+              )
+
+              return (
+                <div>
+                  {myShiftPool.map((person:any)=>{
+                    const personEvents = todayEvents
+                      .filter((e:any)=>e.staff_id===person.id)
+                      .sort((a:any,b:any)=>new Date(a.logged_at).getTime()-new Date(b.logged_at).getTime())
+
+                    if (!personEvents.length) return (
+                      <div key={person.id} style={{display:'flex',alignItems:'center',gap:'10px',
+                        padding:'10px 12px',borderRadius:'8px',background:'#f9fafb',
+                        border:'1px solid #e5e7eb',marginBottom:'6px',opacity:0.5}}>
+                        <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                          fontSize:'9px',fontWeight:'700',
+                          background:COLORS[person.role]?.[0]||'#f3f4f6',
+                          color:COLORS[person.role]?.[1]||'#374151'}}>
+                          {person.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                        </div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:'12px',fontWeight:'600'}}>{person.name}</div>
+                          <div style={{fontSize:'10px',color:'#9ca3af'}}>{person.role}{person.pod?' · Pod '+person.pod:''} · Not punched in</div>
+                        </div>
+                      </div>
+                    )
+
+                    // Calculate durations
+                    const eventDurations: any = {}
+                    personEvents.forEach((e:any,i:number)=>{
+                      const next = personEvents[i+1]
+                      const dur = next
+                        ? (new Date(next.logged_at).getTime()-new Date(e.logged_at).getTime())/60000
+                        : (Date.now()-new Date(e.logged_at).getTime())/60000
+                      eventDurations[e.event_type] = (eventDurations[e.event_type]||0)+dur
+                    })
+
+                    const totalMins:number = Object.values(eventDurations).reduce((a:any,b:any)=>a+b,0) as number
+                    const collectionMins:number = Object.entries(eventDurations)
+                      .filter(([k])=>collectionEvents.includes(k))
+                      .reduce((a:number,[,v]:any[])=>a+(v as number),0)
+                    const overheadMins:number = Object.entries(eventDurations)
+                      .filter(([k])=>overheadEvents.includes(k))
+                      .reduce((a:number,[,v]:any[])=>a+(v as number),0)
+                    const collectionPct = totalMins>0?Math.round(collectionMins/totalMins*100):0
+                    const lastEvent = personEvents[personEvents.length-1]
+                    const lastInfo = getPunchInfo(lastEvent.event_type)
+                    const isPunchedOut = lastEvent.event_type==='punch_out'
+
+                    return (
+                      <div key={person.id} style={{background:'white',borderRadius:'12px',
+                        border:'1px solid #e5e7eb',padding:'12px',marginBottom:'8px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+                          <div style={{width:'32px',height:'32px',borderRadius:'50%',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:'10px',fontWeight:'700',flexShrink:0,
+                            background:COLORS[person.role]?.[0]||'#f3f4f6',
+                            color:COLORS[person.role]?.[1]||'#374151'}}>
+                            {person.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:'13px',fontWeight:'700'}}>{person.name}</div>
+                            <div style={{fontSize:'10px',color:'#6b7280'}}>{person.role}{person.pod?' · Pod '+person.pod:''}</div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:'13px',fontWeight:'800',
+                              color:collectionPct>=50?'#16a34a':collectionPct>=25?'#f59e0b':'#dc2626'}}>
+                              {collectionPct}% on cell
+                            </div>
+                            <div style={{fontSize:'10px',color:'#6b7280'}}>{Math.round(totalMins)}m total</div>
+                          </div>
+                        </div>
+
+                        {/* Current status */}
+                        {!isPunchedOut && (
+                          <div style={{display:'flex',alignItems:'center',gap:'6px',
+                            padding:'5px 8px',borderRadius:'6px',marginBottom:'8px',
+                            background:lastInfo.bg,border:`1px solid ${lastInfo.color}33`}}>
+                            <span style={{fontSize:'14px'}}>{lastInfo.icon}</span>
+                            <span style={{fontSize:'11px',fontWeight:'600',color:lastInfo.color}}>
+                              Now: {lastInfo.label}
+                            </span>
+                            <span style={{fontSize:'10px',color:'#6b7280',marginLeft:'auto'}}>
+                              since {new Date(lastEvent.logged_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Time bar */}
+                        <div style={{display:'flex',height:'14px',borderRadius:'6px',overflow:'hidden',marginBottom:'6px'}}>
+                          {Object.entries(eventDurations).filter(([,v]:any[])=>(v as number)>0).map(([evt,mins]:any[])=>{
+                            const info=getPunchInfo(evt)
+                            const pct=totalMins>0?((mins as number)/totalMins*100):0
+                            return pct>0?<div key={evt} title={`${info.label}: ${Math.round(mins as number)}m`}
+                              style={{width:`${pct}%`,background:info.color}}/>:null
+                          })}
+                        </div>
+
+                        {/* Event breakdown */}
+                        <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
+                          {Object.entries(eventDurations).filter(([,v]:any[])=>(v as number)>1).sort((a:any,b:any)=>b[1]-a[1]).map(([evt,mins]:any[])=>{
+                            const info=getPunchInfo(evt)
+                            return (
+                              <span key={evt} style={{fontSize:'10px',padding:'2px 6px',borderRadius:'4px',
+                                background:info.bg,color:info.color,fontWeight:'600'}}>
+                                {info.icon} {info.label}: {Math.round(mins as number)}m
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })()}
