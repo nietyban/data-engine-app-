@@ -310,7 +310,7 @@ function useRealtimeAttendance() {
             if (!ds.includes('ymc8_activated')) dsSet.add('ymc8')
             // Auto-pause G1 FBT after May 15 if not already tracked
             const today = getToday()
-            if (today > '2026-05-15' && !ds.includes('g1_fbt_resumed')) {
+            if (today > '2026-05-18' && !ds.includes('g1_fbt_resumed')) {
               dsSet.add('g1_fbt')
             }
             setDisabledStations(dsSet)
@@ -319,7 +319,7 @@ function useRealtimeAttendance() {
           // No config yet — auto-pause G1 FBT if past May 15, always disable ymc8
           const today = getToday()
           const defaults = new Set<string>(['ymc8'])
-          if (today > '2026-05-15') defaults.add('g1_fbt')
+          if (today > '2026-05-18') defaults.add('g1_fbt')
           setDisabledStations(defaults)
         }
         // Load vacation
@@ -741,7 +741,7 @@ export default function Home() {
   }
 
   // ── G1 FULL BODY TELEOP ──────────────────────────────────────────────────────
-  const G1_FBT_START_DATE = '2026-05-15'
+  const G1_FBT_START_DATE = '2026-05-18'
   
   function isG1FbtActive(): boolean {
     const today = getToday()
