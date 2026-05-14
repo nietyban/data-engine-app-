@@ -2487,6 +2487,23 @@ export default function Home() {
                                   {task.start_time} → {task.end_time||'TBD'}
                                 </div>
                               </div>}
+                              {task&&(isLead||isSuperAdmin(selectedUser))&&(
+                                <button onClick={async()=>{
+                                  const sb=getSupabase(); if(!sb) return
+                                  await sb.from('adhoc_tasks').update({status:'cancelled'}).eq('id',task.id)
+                                  const {data}=await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                                  if(data){
+                                    setAdhocTasks(data)
+                                    const tod=getToday();const am:any={}
+                                    data.filter((t:any)=>t.status==='active'&&t.start_date<=tod&&(!t.end_date||t.end_date>=tod)).forEach((t:any)=>{am[t.staff_id]=t})
+                                    setAdhocOverrides(am)
+                                  }
+                                }} style={{marginTop:'4px',width:'100%',padding:'3px',borderRadius:'4px',
+                                  border:'1px solid #fca5a5',background:'#fef2f2',
+                                  color:'#dc2626',cursor:'pointer',fontSize:'9px',fontWeight:'700'}}>
+                                  ✕ Cancel
+                                </button>
+                              )}
                             </div>
                           )
                         })}
