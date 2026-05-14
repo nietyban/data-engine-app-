@@ -691,8 +691,8 @@ export default function Home() {
       if (!ps) return null
       const allPod  = pool.filter(m=>m.pod===pod)
       const absentHere = allPod.filter(m=>absentIds.has(m.id))
-      const members = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&!adhocOverrides[m.id])
-      const adhocMembers = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&adhocOverrides[m.id])
+      const members = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&!effectiveAdhocOverrides[m.id])
+      const adhocMembers = pool.filter(m=>m.pod===pod&&!absentIds.has(m.id)&&effectiveAdhocOverrides[m.id])
       const personA = members[0]?.name.split(' ')[0]??'?'
       const personB = members[1]?.name.split(' ')[0]??'(solo)'
       const isSolo  = members.length<2
@@ -714,7 +714,7 @@ export default function Home() {
 
   // ── ADHOC/MANUAL ASSIGNMENT HELPERS ────────────────────────────────────────
   function isOnAdhoc(staffId: string): boolean {
-    const task = adhocOverrides[staffId]
+    const task = effectiveAdhocOverrides?.[staffId] || adhocOverrides[staffId]
     if (!task) return false
     const today = getToday()
     return task.status==='active' && task.start_date<=today && (!task.end_date||task.end_date>=today)
@@ -780,6 +780,18 @@ export default function Home() {
     })
     return result
   }
+
+  // Keep adhocOverrides in sync with adhocTasks
+  const currentAdhocOverrides: any = {}
+  const todayStr = getToday()
+  adhocTasks
+    .filter((t:any)=>t.status==='active'&&t.start_date<=todayStr&&(!t.end_date||t.end_date>=todayStr))
+    .forEach((t:any)=>{ currentAdhocOverrides[t.staff_id]=t })
+
+  // Use computed overrides (always fresh, no stale state)
+  const effectiveAdhocOverrides = Object.keys(currentAdhocOverrides).length > 0 
+    ? currentAdhocOverrides 
+    : adhocOverrides
 
   const autoAssignments = getAutoAssignments()
 
@@ -2354,7 +2366,7 @@ export default function Home() {
                       ):null
                     })()}
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:`repeat(${blocks.length},1fr)`,overflow:'hidden'}}>
+                  <div style={{display:'grid',gridTemplateColumns:`repeat(${blocks.length},1fr)${row.adhocMembers&&row.adhocMembers.length>0?' 1fr':''}`,overflow:'hidden'}}>
                     {blocks.map((b:any,bi:number)=>{
                       const info = STATION_INFO[b.station]
                       if (!info) return <div key={bi}/>
@@ -2364,7 +2376,7 @@ export default function Home() {
                       const activeIdx = bAlert?.sessionIndex??-1
                       return (
                         <div key={bi} style={{
-                          borderRight:bi<blocks.length-1?'1px solid #e5e7eb':'none',
+                          borderRight:bi<blocks.length-1||row.adhocMembers?.length>0?'1px solid #e5e7eb':'none',
                           background:isActive?`${info.dot}08`:'white'}}>
                           {disabledStations.has(b.station) ? (
                             <div style={{padding:'12px 10px',background:'#f3f4f6',
@@ -2454,6 +2466,35 @@ export default function Home() {
                         </div>
                       )
                     })}
+                    {/* ADHOC COLUMN — shows if any pod member is on adhoc */}
+                    {row.adhocMembers&&row.adhocMembers.length>0&&(
+                      <div style={{background:'#f3e8ff',borderLeft:'2px solid #7c3aed',padding:'8px 10px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'5px',marginBottom:'6px'}}>
+                          <span style={{fontSize:'11px',fontWeight:'800',color:'white',
+                            background:'#7c3aed',padding:'2px 8px',borderRadius:'4px'}}>ADHOC</span>
+                        </div>
+                        {row.adhocMembers.map((m:any)=>{
+                          const task = effectiveAdhocOverrides[m.id]
+                          return (
+                            <div key={m.id} style={{marginBottom:'6px',padding:'6px 8px',
+                              background:'white',borderRadius:'6px',border:'1px solid #d8b4fe'}}>
+                              <div style={{fontSize:'11px',fontWeight:'700',color:'#7c3aed',marginBottom:'2px'}}>
+                                📋 {m.name.split(' ')[0]}
+                              </div>
+                              {task&&<div style={{fontSize:'9px',color:'#6b7280',lineHeight:1.3}}>
+                                {task.task_name}
+                                <div style={{fontFamily:'monospace',marginTop:'2px'}}>
+                                  {task.start_time} → {task.end_time||'TBD'}
+                                </div>
+                              </div>}
+                            </div>
+                          )
+                        })}
+                        <div style={{fontSize:'9px',color:'#7c3aed',marginTop:'4px',opacity:0.7}}>
+                          Pod running solo
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
