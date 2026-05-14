@@ -61,6 +61,7 @@ const STATION_INFO: Record<string,any> = {
   g1:   {label:'G1',    task:'Robot Collection',    dot:'#22c55e', shift:'s2', solo:false},
   uc1:  {label:'UMI C1',task:'Pill Bottle Scan',    dot:'#7dd3fc', shift:'s2', solo:true},
   uc2:  {label:'UMI C2',task:'Fish Picking Demo',   dot:'#86efac', shift:'s2', solo:true},
+  g1_fbt:{label:'G1 Full Body',task:'Full Body Teleop', dot:'#f97316', shift:'both', solo:false},
 }
 
 // ─── 1ST SHIFT SCHEDULE ───────────────────────────────────────────────────────
@@ -303,8 +304,20 @@ function useRealtimeAttendance() {
         if (dsData?.config_value) {
           try {
             const ds = JSON.parse(dsData.config_value)
-            setDisabledStations(new Set(ds))
+            const dsSet = new Set(ds)
+            // Auto-pause G1 FBT after May 15 if not already tracked
+            const today = getToday()
+            if (today > '2026-05-15' && !ds.includes('g1_fbt_resumed')) {
+              dsSet.add('g1_fbt')
+            }
+            setDisabledStations(dsSet)
           } catch(e){}
+        } else {
+          // No config yet — auto-pause G1 FBT if past May 15
+          const today = getToday()
+          if (today > '2026-05-15') {
+            setDisabledStations(new Set(['g1_fbt']))
+          }
         }
         // Load vacation
         const {data:vacData} = await supabase.from('time_off').select('id,staff_id,start_date,end_date').gte('end_date',today)
@@ -710,6 +723,35 @@ export default function Home() {
       ]
       return {pod,members,allPod,absentHere,adhocMembers,personA,personB,isSolo,blocks}
     }).filter(Boolean)
+  }
+
+  // ── G1 FULL BODY TELEOP ──────────────────────────────────────────────────────
+  const G1_FBT_START_DATE = '2026-05-15'
+  
+  function isG1FbtActive(): boolean {
+    const today = getToday()
+    // Before start date — not active
+    if (today < G1_FBT_START_DATE) return false
+    // After May 15 — only active if leads/Yban explicitly resumed it (not in disabledStations)
+    // Default state after May 15 is paused unless manually resumed
+    if (today > G1_FBT_START_DATE) return !disabledStations.has('g1_fbt')
+    // On May 15 exactly — active unless manually paused
+    return !disabledStations.has('g1_fbt')
+  }
+
+  function getG1FbtAssignees(): {shift1: any|null, shift2: any|null} {
+    if (!isG1FbtActive()) return {shift1:null, shift2:null}
+    // Fixed assignees: Quincy Freeman (Shift 1) and Michael Soebroto (Shift 2)
+    // Falls back to first available DC if assigned person is absent or on adhoc
+    const quincy = ROSTER.s1.find(m=>m.id==='qf')
+    const michael = ROSTER.s2.find(m=>m.id==='ms')
+    const s1DC = (quincy && !absentIds.has('qf') && !effectiveAdhocOverrides['qf'])
+      ? quincy
+      : ROSTER.s1.find(m=>m.role==='DC'&&!absentIds.has(m.id)&&!effectiveAdhocOverrides[m.id]) || null
+    const s2DC = (michael && !absentIds.has('ms') && !effectiveAdhocOverrides['ms'])
+      ? michael
+      : ROSTER.s2.find(m=>m.role==='DC'&&!absentIds.has(m.id)&&!effectiveAdhocOverrides[m.id]) || null
+    return {shift1: s1DC, shift2: s2DC}
   }
 
   // ── ADHOC/MANUAL ASSIGNMENT HELPERS ────────────────────────────────────────
@@ -1911,6 +1953,46 @@ export default function Home() {
               </div>
             )}
 
+            {/* G1 FULL BODY TELEOP ASSIGNMENT NOTICE */}
+            {(()=>{
+              if (!isG1FbtActive()) return null
+              const {shift1, shift2} = getG1FbtAssignees()
+              const isAssigned = selectedUser==='qf' || selectedUser==='ms' ||
+                (currentUser?.shift===1 && shift1?.id===selectedUser) ||
+                (currentUser?.shift===2 && shift2?.id===selectedUser)
+              if (!isAssigned) return null
+              const blocks = [
+                {label:'Block 1', time:'10:00 AM – 12:00 PM', hrs:2},
+                {label:'Block 3', time:'1:00 PM – 3:00 PM', hrs:2}
+              ]
+              return (
+                <div style={{background:'#fff7ed',borderRadius:'12px',
+                  border:'2px solid #f97316',padding:'14px',marginBottom:'12px'}}>
+                  <div style={{fontWeight:'800',fontSize:'13px',color:'#ea580c',
+                    marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}}>
+                    <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#f97316'}}/>
+                    G1 Full Body Teleop — You are assigned today
+                  </div>
+                  <div style={{fontSize:'11px',color:'#ea580c',marginBottom:'8px'}}>
+                    Full Body Teleop Platform · 4 hrs total (2 blocks) · Quincy & Michael rotation
+                  </div>
+                  {blocks.map((b:any,i:number)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:'10px',
+                      padding:'8px 10px',borderRadius:'8px',background:'white',
+                      border:'1px solid #fed7aa',marginBottom:'4px'}}>
+                      <span style={{fontSize:'12px',fontWeight:'700',color:'#f97316'}}>{b.label}</span>
+                      <span style={{fontSize:'11px',color:'#374151',fontFamily:'monospace'}}>{b.time}</span>
+                      <span style={{marginLeft:'auto',fontSize:'11px',fontWeight:'700',
+                        color:'#f97316'}}>{b.hrs}h</span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:'10px',color:'#9ca3af',marginTop:'6px'}}>
+                    You remain in your regular pod rotation for all other blocks
+                  </div>
+                </div>
+              )
+            })()}
+
             {!myTimeline.length ? (
               <div style={{background:'white',borderRadius:'12px',border:'1px solid #e5e7eb',
                 padding:'32px',textAlign:'center',color:'#9ca3af',fontSize:'13px'}}>
@@ -2160,6 +2242,127 @@ export default function Home() {
                 })}
               </div>
             </div>
+            {/* G1 FULL BODY TELEOP SECTION */}
+            {(()=>{
+              const {shift1, shift2} = getG1FbtAssignees()
+              const fbtInfo = STATION_INFO['g1_fbt']
+              const isActive = isG1FbtActive()
+              const today = getToday()
+              const isFuture = today < G1_FBT_START_DATE
+              const isPaused = disabledStations.has('g1_fbt')
+              
+              if (!isActive && !isPaused && !isFuture) return null
+              
+              return (
+                <div style={{background:'white',borderRadius:'12px',
+                  border:`2px solid ${isActive?'#f97316':'#e5e7eb'}`,
+                  marginBottom:'12px',overflow:'hidden'}}>
+                  <div style={{padding:'10px 14px',
+                    background:isActive?'#fff7ed':'#f9fafb',
+                    borderBottom:'1px solid #e5e7eb',
+                    display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                    <div style={{width:'10px',height:'10px',borderRadius:'50%',
+                      background:isActive?'#f97316':'#9ca3af'}}/>
+                    <span style={{fontWeight:'800',fontSize:'13px',
+                      color:isActive?'#ea580c':'#6b7280'}}>
+                      G1 Full Body Teleop
+                    </span>
+                    <span style={{fontSize:'11px',color:'#6b7280'}}>— Full Body Teleop Platform</span>
+                    <span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'10px',fontWeight:'700',
+                      background:isActive?'#fed7aa':'#f3f4f6',
+                      color:isActive?'#ea580c':'#6b7280'}}>
+                      {isFuture?`Starts ${G1_FBT_START_DATE}`:isPaused?'PAUSED — Awaiting researcher guidance':'ACTIVE'}
+                    </span>
+                    <div style={{marginLeft:'auto',display:'flex',gap:'6px'}}>
+                      {(isLead||isSuperAdmin(selectedUser))&&(
+                        <button onClick={()=>toggleStation('g1_fbt', selectedUser||'')}
+                          style={{padding:'4px 10px',borderRadius:'6px',fontSize:'10px',
+                            fontWeight:'700',cursor:'pointer',border:'1px solid',
+                            borderColor:disabledStations.has('g1_fbt')?'#86efac':'#fca5a5',
+                            background:disabledStations.has('g1_fbt')?'#f0fdf4':'#fef2f2',
+                            color:disabledStations.has('g1_fbt')?'#16a34a':'#dc2626'}}>
+                          {disabledStations.has('g1_fbt')?'▶ Resume':'⏸ Pause'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {isActive ? (
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0'}}>
+                      {/* Shift 1 block - 1PM to 3PM */}
+                      <div style={{padding:'12px',borderRight:'1px solid #e5e7eb'}}>
+                        <div style={{fontSize:'11px',fontWeight:'700',color:'#f97316',marginBottom:'6px',
+                          display:'flex',alignItems:'center',gap:'6px'}}>
+                          <span>1st Shift · 10:00 AM–12:00 PM & 1:00–3:00 PM</span>
+                          {(()=>{
+                            const nowM = new Date().getHours()*60+new Date().getMinutes()
+                            const isNow=(nowM>=10*60&&nowM<12*60)||(nowM>=13*60&&nowM<15*60)
+                            return isNow?<span style={{padding:'1px 6px',borderRadius:'4px',
+                              fontSize:'9px',background:'#fed7aa',color:'#ea580c',fontWeight:'800'}}>ACTIVE</span>:null
+                          })()}
+                        </div>
+                        {shift1 ? (
+                          <div style={{display:'flex',alignItems:'center',gap:'8px',
+                            padding:'8px',borderRadius:'8px',background:'#fff7ed',
+                            border:'1px solid #fed7aa'}}>
+                            <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                              display:'flex',alignItems:'center',justifyContent:'center',
+                              fontSize:'9px',fontWeight:'700',background:'#fed7aa',color:'#ea580c'}}>
+                              {shift1.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                            </div>
+                            <div>
+                              <div style={{fontSize:'12px',fontWeight:'700'}}>{shift1.name}</div>
+                              <div style={{fontSize:'10px',color:'#6b7280'}}>{shift1.role} · Pod {shift1.pod}</div>
+                            </div>
+                            <span style={{marginLeft:'auto',fontSize:'10px',fontWeight:'700',
+                              color:'#f97316'}}>4 hrs total</span>
+                          </div>
+                        ) : (
+                          <div style={{fontSize:'12px',color:'#9ca3af',padding:'8px'}}>
+                            No available Shift 1 DC
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Shift 2 - two blocks */}
+                      <div style={{padding:'12px'}}>
+                        <div style={{fontSize:'11px',fontWeight:'700',color:'#f97316',marginBottom:'6px'}}>
+                          2nd Shift · 10:00 AM–12:00 PM & 1:00–3:00 PM
+                        </div>
+                        {shift2 ? (
+                          <div style={{display:'flex',alignItems:'center',gap:'8px',
+                            padding:'8px',borderRadius:'8px',background:'#fff7ed',
+                            border:'1px solid #fed7aa'}}>
+                            <div style={{width:'28px',height:'28px',borderRadius:'50%',
+                              display:'flex',alignItems:'center',justifyContent:'center',
+                              fontSize:'9px',fontWeight:'700',background:'#fed7aa',color:'#ea580c'}}>
+                              {shift2.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}
+                            </div>
+                            <div>
+                              <div style={{fontSize:'12px',fontWeight:'700'}}>{shift2.name}</div>
+                              <div style={{fontSize:'10px',color:'#6b7280'}}>{shift2.role} · Pod {shift2.pod}</div>
+                            </div>
+                            <span style={{marginLeft:'auto',fontSize:'10px',fontWeight:'700',
+                              color:'#f97316'}}>4 hrs total</span>
+                          </div>
+                        ) : (
+                          <div style={{fontSize:'12px',color:'#9ca3af',padding:'8px'}}>
+                            No available Shift 2 DC
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{padding:'16px',textAlign:'center',color:'#9ca3af',fontSize:'13px'}}>
+                      {isFuture
+                        ? `Station starts ${G1_FBT_START_DATE} at 10:00 AM`
+                        : 'Paused — Resume when researchers confirm data collection is ready'}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {disabledStations.size>0&&(
               <div style={{padding:'10px 14px',background:'#fef2f2',borderRadius:'10px',
                 border:'1px solid #fca5a5',marginBottom:'12px'}}>
