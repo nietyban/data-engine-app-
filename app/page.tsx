@@ -62,6 +62,7 @@ const STATION_INFO: Record<string,any> = {
   uc1:  {label:'UMI C1',task:'Pill Bottle Scan',    dot:'#7dd3fc', shift:'s2', solo:true},
   uc2:  {label:'UMI C2',task:'Fish Picking Demo',   dot:'#86efac', shift:'s2', solo:true},
   g1_fbt:{label:'G1 Full Body',task:'Full Body Teleop', dot:'#f97316', shift:'both', solo:false},
+  ymc8: {label:'YMC 8', task:'TBD', dot:'#94a3b8', shift:'both', solo:false, inactive:true},
 }
 
 // ─── 1ST SHIFT SCHEDULE ───────────────────────────────────────────────────────
@@ -305,6 +306,8 @@ function useRealtimeAttendance() {
           try {
             const ds = JSON.parse(dsData.config_value)
             const dsSet = new Set(ds)
+            // Always keep ymc8 disabled unless explicitly enabled
+            if (!ds.includes('ymc8_activated')) dsSet.add('ymc8')
             // Auto-pause G1 FBT after May 15 if not already tracked
             const today = getToday()
             if (today > '2026-05-15' && !ds.includes('g1_fbt_resumed')) {
@@ -313,11 +316,11 @@ function useRealtimeAttendance() {
             setDisabledStations(dsSet)
           } catch(e){}
         } else {
-          // No config yet — auto-pause G1 FBT if past May 15
+          // No config yet — auto-pause G1 FBT if past May 15, always disable ymc8
           const today = getToday()
-          if (today > '2026-05-15') {
-            setDisabledStations(new Set(['g1_fbt']))
-          }
+          const defaults = new Set<string>(['ymc8'])
+          if (today > '2026-05-15') defaults.add('g1_fbt')
+          setDisabledStations(defaults)
         }
         // Load vacation
         const {data:vacData} = await supabase.from('time_off').select('id,staff_id,start_date,end_date').gte('end_date',today)
@@ -472,6 +475,15 @@ export default function Home() {
   const [adhocTaskType, setAdhocTaskType] = useState('other')
   const [adhocAsanaLink, setAdhocAsanaLink] = useState('')
   const [adhocOtherType, setAdhocOtherType] = useState('')
+  const [reassignStation, setReassignStation] = useState<string|null>(null)
+  const [reassignStartDate, setReassignStartDate] = useState('')
+  const [reassignStartTime, setReassignStartTime] = useState('')
+  const [reassignEndDate, setReassignEndDate] = useState('')
+  const [reassignEndTime, setReassignEndTime] = useState('')
+  const [reassignTaskType, setReassignTaskType] = useState('other')
+  const [reassignAsanaLink, setReassignAsanaLink] = useState('')
+  const [reassignNote, setReassignNote] = useState('')
+  const [reassignMsg, setReassignMsg] = useState('')
   const [adhocPendingConfirm, setAdhocPendingConfirm] = useState<any|null>(null)
   const [loginStats, setLoginStats] = useState<any[]>([])
   const [stationLogs, setStationLogs] = useState<any[]>([])
@@ -2411,11 +2423,14 @@ export default function Home() {
               <div style={{fontSize:'11px',fontWeight:'600',color:'#9ca3af',
                 textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>Station key</div>
               <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
-                {Object.entries(STATION_INFO).map(([id,info])=>(
+                {Object.entries(STATION_INFO).map(([id,info]:any)=>(
                   <span key={id} style={{padding:'3px 10px',borderRadius:'99px',fontSize:'11px',
-                    fontWeight:'600',background:`${info.dot}22`,color:info.dot,
-                    border:`1px solid ${info.dot}44`}}>
-                    {info.label} - {info.shift==='s1'?'1st':'2nd'}{info.solo?' (solo)':''}
+                    fontWeight:'600',
+                    background:info.inactive?'#f1f5f9':`${info.dot}22`,
+                    color:info.inactive?'#94a3b8':info.dot,
+                    border:`1px solid ${info.inactive?'#cbd5e1':info.dot+'44'}`,
+                    opacity:info.inactive?0.7:1}}>
+                    {info.label}{info.inactive?' — INACTIVE':` - ${info.shift==='s1'?'1st':info.shift==='s2'?'2nd':'both'}${info.solo?' (solo)':''}`}
                   </span>
                 ))}
               </div>
@@ -2887,53 +2902,207 @@ export default function Home() {
         {/* MANUAL REASSIGNMENT MODAL */}
         {showManualAssign && (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',
-            zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
+            zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px',overflowY:'auto'}}>
             <div style={{background:'white',borderRadius:'16px',padding:'20px',
-              width:'100%',maxWidth:'360px',boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
-              <div style={{fontWeight:'800',fontSize:'15px',marginBottom:'4px'}}>
-                Reassign {ALL_PEOPLE.find((p:any)=>p.id===showManualAssign)?.name}
-              </div>
-              <div style={{fontSize:'12px',color:'#6b7280',marginBottom:'16px'}}>
-                This overrides their rotation for the current block only
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}}>
-                {Object.entries(STATION_INFO).map(([stId,info]:any)=>(
-                  <button key={stId} onClick={()=>{
-                    setManualAssignments((prev:any)=>({...prev,
-                      [showManualAssign]:{stationId:stId, blockIdx: new Date().getHours()<12?0:new Date().getHours()<14?2:3}
-                    }))
-                    // Notify the person
-                    const person = ALL_PEOPLE.find((p:any)=>p.id===showManualAssign)
-                    setNotifications((prev:any)=>[...prev,{
-                      id:`reassign_${showManualAssign}_${Date.now()}`,
-                      msg:`${person?.name} has been manually reassigned to ${info.label} for this block`,
-                      time:Date.now()
-                    }])
-                    setShowManualAssign(null)
-                  }} style={{padding:'10px 8px',borderRadius:'8px',cursor:'pointer',
-                    border:`1px solid ${info.dot}44`,background:`${info.dot}11`,
-                    color:info.dot,fontWeight:'700',fontSize:'11px',
-                    display:'flex',alignItems:'center',gap:'6px',justifyContent:'center'}}>
-                    <div style={{width:'8px',height:'8px',borderRadius:'50%',background:info.dot,flexShrink:0}}/>
-                    {info.label}
-                  </button>
-                ))}
-                <button onClick={()=>{
-                  setManualAssignments((prev:any)=>{
-                    const n={...prev}; delete n[showManualAssign!]; return n
-                  })
-                  setShowManualAssign(null)
-                }} style={{padding:'10px 8px',borderRadius:'8px',cursor:'pointer',
-                  border:'1px solid #86efac',background:'#f0fdf4',
-                  color:'#16a34a',fontWeight:'700',fontSize:'11px',gridColumn:'1/-1'}}>
-                  ↩ Return to Regular Rotation
-                </button>
-              </div>
-              <button onClick={()=>setShowManualAssign(null)}
-                style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',
-                  background:'white',cursor:'pointer',fontSize:'12px',color:'#6b7280'}}>
-                Cancel
-              </button>
+              width:'100%',maxWidth:'420px',boxShadow:'0 8px 32px rgba(0,0,0,0.2)',margin:'auto'}}>
+              {(()=>{
+                const person = ALL_PEOPLE.find((p:any)=>p.id===showManualAssign)
+                return (
+                  <>
+                    <div style={{fontWeight:'800',fontSize:'15px',marginBottom:'2px'}}>
+                      Reassign {person?.name}
+                    </div>
+                    <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'16px'}}>
+                      Override takes effect for the full duration specified — impacts all rotation blocks during this period
+                    </div>
+
+                    {/* Step 1: Pick station */}
+                    <div style={{fontSize:'11px',fontWeight:'700',color:'#374151',
+                      textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>
+                      1. Assign to station
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'14px'}}>
+                      {Object.entries(STATION_INFO).map(([stId,info]:any)=>(
+                        <button key={stId} onClick={()=>setReassignStation(stId)}
+                          style={{padding:'8px',borderRadius:'8px',cursor:'pointer',
+                            border:`2px solid ${reassignStation===stId?info.dot:'#e5e7eb'}`,
+                            background:reassignStation===stId?`${info.dot}22`:'white',
+                            color:reassignStation===stId?info.dot:'#374151',
+                            fontWeight:'700',fontSize:'11px',
+                            display:'flex',alignItems:'center',gap:'6px'}}>
+                          <div style={{width:'8px',height:'8px',borderRadius:'50%',
+                            background:info.dot,flexShrink:0}}/>
+                          {info.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Step 2: Task type & Asana */}
+                    <div style={{fontSize:'11px',fontWeight:'700',color:'#374151',
+                      textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>
+                      2. Task details
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Task type</div>
+                        <select value={reassignTaskType} onChange={e=>setReassignTaskType(e.target.value)}
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px',background:'white'}}>
+                          <option value="yam">YAM</option>
+                          <option value="teleop">TELEOP</option>
+                          <option value="dagger">DAGGER</option>
+                          <option value="inference">INFERENCE</option>
+                          <option value="g1">G1</option>
+                          <option value="umi">UMI</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Note / task name</div>
+                        <input value={reassignNote} onChange={e=>setReassignNote(e.target.value)}
+                          placeholder="e.g. Asana inference task batch"
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Asana link (optional)</div>
+                        <input value={reassignAsanaLink} onChange={e=>setReassignAsanaLink(e.target.value)}
+                          placeholder="https://app.asana.com/..."
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                    </div>
+
+                    {/* Step 3: Duration */}
+                    <div style={{fontSize:'11px',fontWeight:'700',color:'#374151',
+                      textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'8px'}}>
+                      3. Duration
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'14px'}}>
+                      <div>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Start date</div>
+                        <input type="date" value={reassignStartDate} min={getToday()}
+                          onChange={e=>setReassignStartDate(e.target.value)}
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Start time</div>
+                        <input type="time" value={reassignStartTime}
+                          onChange={e=>setReassignStartTime(e.target.value)}
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>End date (blank = open)</div>
+                        <input type="date" value={reassignEndDate} min={reassignStartDate||getToday()}
+                          onChange={e=>setReassignEndDate(e.target.value)}
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>End time</div>
+                        <input type="time" value={reassignEndTime}
+                          onChange={e=>setReassignEndTime(e.target.value)}
+                          style={{width:'100%',padding:'7px',borderRadius:'8px',
+                            border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                    </div>
+
+                    {reassignMsg&&<div style={{fontSize:'12px',textAlign:'center',marginBottom:'8px',
+                      color:reassignMsg.includes('ok')?'#16a34a':'#dc2626'}}>{reassignMsg}</div>}
+
+                    <div style={{display:'flex',gap:'8px'}}>
+                      <button onClick={()=>{
+                        setShowManualAssign(null)
+                        setReassignStation(null)
+                        setReassignStartDate('');setReassignStartTime('')
+                        setReassignEndDate('');setReassignEndTime('')
+                        setReassignNote('');setReassignAsanaLink('')
+                        setReassignMsg('')
+                      }} style={{flex:1,padding:'10px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                        background:'white',cursor:'pointer',fontSize:'12px',color:'#6b7280',fontWeight:'600'}}>
+                        Cancel
+                      </button>
+                      <button onClick={async()=>{
+                        if (!reassignStation){setReassignMsg('Select a station');return}
+                        if (!reassignStartDate||!reassignStartTime){setReassignMsg('Add start date and time');return}
+                        const sb=getSupabase(); if(!sb){setReassignMsg('Not connected');return}
+                        const finalType = reassignTaskType==='other'?'Other':reassignTaskType.toUpperCase()
+                        const taskName = reassignNote || `${finalType} reassignment — ${STATION_INFO[reassignStation]?.label||reassignStation}`
+                        const notes = [finalType, reassignAsanaLink].filter(Boolean).join(' | ')
+                        const {data:newTask,error} = await sb.from('adhoc_tasks').insert({
+                          staff_id:showManualAssign,
+                          task_name:taskName,
+                          description:`Manual reassignment to ${STATION_INFO[reassignStation]?.label||reassignStation}`,
+                          start_date:reassignStartDate, start_time:reassignStartTime,
+                          end_date:reassignEndDate||null, end_time:reassignEndTime||null,
+                          submitted_by:selectedUser||'',
+                          shift:person?.shift||shift,
+                          status:'active',
+                          confirmed_by:selectedUser||'',
+                          confirmed_at:new Date().toISOString(),
+                          notes
+                        }).select().single()
+                        if (error){setReassignMsg('Error: '+error.message);return}
+                        // Refresh adhoc tasks and overrides
+                        const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                        if (data){
+                          setAdhocTasks(data)
+                          const tod=getToday();const am:any={}
+                          data.filter((t:any)=>t.status==='active'&&t.start_date<=tod&&(!t.end_date||t.end_date>=tod))
+                            .forEach((t:any)=>{am[t.staff_id]=t})
+                          setAdhocOverrides(am)
+                        }
+                        // Notify team
+                        setNotifications((prev:any)=>[...prev,{
+                          id:`reassign_${showManualAssign}_${Date.now()}`,
+                          msg:`${person?.name} reassigned to ${STATION_INFO[reassignStation]?.label||reassignStation} · ${reassignStartDate} ${reassignStartTime}${reassignEndDate?' → '+reassignEndDate+' '+reassignEndTime:''}`,
+                          time:Date.now()
+                        }])
+                        setReassignMsg('Reassignment saved!')
+                        setTimeout(()=>{
+                          setShowManualAssign(null);setReassignStation(null)
+                          setReassignStartDate('');setReassignStartTime('')
+                          setReassignEndDate('');setReassignEndTime('')
+                          setReassignNote('');setReassignAsanaLink('');setReassignMsg('')
+                        },1500)
+                      }} style={{flex:2,padding:'10px',borderRadius:'8px',border:'none',
+                        background:'#1d4ed8',color:'white',cursor:'pointer',
+                        fontSize:'12px',fontWeight:'700'}}>
+                        Confirm Reassignment
+                      </button>
+                    </div>
+
+                    {/* Clear existing override */}
+                    <button onClick={async()=>{
+                      // Cancel any active adhoc for this person
+                      const sb=getSupabase(); if(!sb) return
+                      const tod=getToday()
+                      const active = adhocTasks.filter((t:any)=>
+                        t.staff_id===showManualAssign&&t.status==='active'&&
+                        t.start_date<=tod&&(!t.end_date||t.end_date>=tod)
+                      )
+                      for (const t of active) {
+                        await sb.from('adhoc_tasks').update({status:'cancelled'}).eq('id',t.id)
+                      }
+                      const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
+                      if(data){
+                        setAdhocTasks(data)
+                        const am:any={}
+                        data.filter((t:any)=>t.status==='active'&&t.start_date<=tod&&(!t.end_date||t.end_date>=tod))
+                          .forEach((t:any)=>{am[t.staff_id]=t})
+                        setAdhocOverrides(am)
+                      }
+                      setShowManualAssign(null)
+                    }} style={{width:'100%',marginTop:'8px',padding:'8px',borderRadius:'8px',
+                      border:'1px solid #86efac',background:'#f0fdf4',cursor:'pointer',
+                      fontSize:'11px',color:'#16a34a',fontWeight:'600'}}>
+                      ↩ Return {person?.name} to Regular Rotation
+                    </button>
+                  </>
+                )
+              })()}
             </div>
           </div>
         )}
