@@ -469,6 +469,9 @@ export default function Home() {
   const [adhocEndTime, setAdhocEndTime] = useState('')
   const [adhocStaffId, setAdhocStaffId] = useState('')
   const [adhocMsg, setAdhocMsg] = useState('')
+  const [adhocTaskType, setAdhocTaskType] = useState('other')
+  const [adhocAsanaLink, setAdhocAsanaLink] = useState('')
+  const [adhocOtherType, setAdhocOtherType] = useState('')
   const [adhocPendingConfirm, setAdhocPendingConfirm] = useState<any|null>(null)
   const [loginStats, setLoginStats] = useState<any[]>([])
   const [stationLogs, setStationLogs] = useState<any[]>([])
@@ -2685,6 +2688,10 @@ export default function Home() {
                                 📋 {m.name.split(' ')[0]}
                               </div>
                               {task&&<div style={{fontSize:'9px',color:'#6b7280',lineHeight:1.3}}>
+                                {task.notes&&<span style={{fontWeight:'700',color:'#1d4ed8',
+                                  textTransform:'uppercase',marginRight:'4px'}}>
+                                  {task.notes.split(' | ')[0]}
+                                </span>}
                                 {task.task_name}
                                 <div style={{fontFamily:'monospace',marginTop:'2px'}}>
                                   {task.start_time} → {task.end_time||'TBD'}
@@ -3340,6 +3347,25 @@ export default function Home() {
                         )}
                       </div>
                       <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Task type</div>
+                        <select value={adhocTaskType} onChange={e=>setAdhocTaskType(e.target.value)}
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px',background:'white'}}>
+                          <option value="yam">YAM</option>
+                          <option value="teleop">TELEOP</option>
+                          <option value="dagger">DAGGER</option>
+                          <option value="inference">INFERENCE</option>
+                          <option value="g1">G1</option>
+                          <option value="umi">UMI</option>
+                          <option value="other">Other</option>
+                        </select>
+                        {adhocTaskType==='other' && (
+                          <input value={adhocOtherType} onChange={e=>setAdhocOtherType(e.target.value)}
+                            placeholder="Specify task type..."
+                            style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',
+                              fontSize:'12px',marginTop:'6px'}}/>
+                        )}
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
                         <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Task name</div>
                         <input value={adhocName} onChange={e=>setAdhocName(e.target.value)}
                           placeholder="e.g. Special data collection run"
@@ -3349,6 +3375,12 @@ export default function Home() {
                         <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Description (optional)</div>
                         <input value={adhocDesc} onChange={e=>setAdhocDesc(e.target.value)}
                           placeholder="Additional details..."
+                          style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
+                      </div>
+                      <div style={{gridColumn:'1/-1'}}>
+                        <div style={{fontSize:'11px',color:'#6b7280',marginBottom:'3px'}}>Asana ticket link (optional)</div>
+                        <input value={adhocAsanaLink} onChange={e=>setAdhocAsanaLink(e.target.value)}
+                          placeholder="https://app.asana.com/..."
                           style={{width:'100%',padding:'8px',borderRadius:'8px',border:'1px solid #e5e7eb',fontSize:'12px'}}/>
                       </div>
                       <div>
@@ -3389,20 +3421,27 @@ export default function Home() {
                       const sb = getSupabase(); if (!sb){setAdhocMsg('Not connected to database');return}
                       const status = isLead||isSuperAdmin(selectedUser) ? 'active' : 'pending_confirmation'
                       const personShift = assignedPerson?.shift || currentUser?.shift || shift
+                      const finalTaskType = adhocTaskType==='other' ? (adhocOtherType||'Other') : adhocTaskType.toUpperCase()
                       const {data:newTask, error:insertError} = await sb.from('adhoc_tasks').insert({
                         staff_id:assignTarget, task_name:adhocName, description:adhocDesc||'',
                         start_date:adhocStartDate, start_time:adhocStartTime,
                         end_date:adhocEndDate||null, end_time:adhocEndTime||null,
                         submitted_by:selectedUser||'', shift:personShift,
                         status, confirmed_by:isLead||isSuperAdmin(selectedUser)?selectedUser||'':null,
-                        confirmed_at:isLead||isSuperAdmin(selectedUser)?new Date().toISOString():null
+                        confirmed_at:isLead||isSuperAdmin(selectedUser)?new Date().toISOString():null,
+                        notes: [finalTaskType, adhocAsanaLink].filter(Boolean).join(' | ')
                       }).select().single()
                       if (insertError){setAdhocMsg('Error: '+insertError.message);return}
                       if (newTask && status==='pending_confirmation') setAdhocPendingConfirm(newTask)
                       const {data} = await sb.from('adhoc_tasks').select('*').order('submitted_at',{ascending:false})
-                      if (data) setAdhocTasks(data)
+                      if (data) {
+                        setAdhocTasks(data)
+                        const tod=getToday();const am:any={}
+                        data.filter((t:any)=>t.status==='active'&&t.start_date<=tod&&(!t.end_date||t.end_date>=tod)).forEach((t:any)=>{am[t.staff_id]=t})
+                        setAdhocOverrides(am)
+                      }
                       setAdhocMsg(status==='active'?'Adhoc task created ok!':'Submitted — pending lead confirmation')
-                      setTimeout(()=>{setShowAdhocForm(false);setAdhocName('');setAdhocDesc('');setAdhocStartDate('');setAdhocStartTime('');setAdhocEndDate('');setAdhocEndTime('');setAdhocStaffId('');setAdhocMsg('')},2000)
+                      setTimeout(()=>{setShowAdhocForm(false);setAdhocName('');setAdhocDesc('');setAdhocStartDate('');setAdhocStartTime('');setAdhocEndDate('');setAdhocEndTime('');setAdhocStaffId('');setAdhocMsg('');setAdhocTaskType('other');setAdhocAsanaLink('');setAdhocOtherType('')},2000)
                     }} style={{width:'100%',padding:'10px',borderRadius:'8px',border:'none',
                       background:'#7c3aed',color:'white',fontWeight:'700',fontSize:'13px',cursor:'pointer'}}>
                       Submit Adhoc Task
@@ -3429,7 +3468,26 @@ export default function Home() {
                   <div key={task.id} style={{padding:'12px',borderRadius:'8px',background:'#f9fafb',
                     border:'1px solid #e5e7eb',marginBottom:'8px'}}>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}}>
-                      <div style={{fontWeight:'700',fontSize:'13px'}}>{task.task_name}</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:'700',fontSize:'13px'}}>{task.task_name}</div>
+                        {task.notes&&(()=>{
+                          const parts = task.notes.split(' | ')
+                          const taskType = parts[0]
+                          const asanaLink = parts[1]
+                          return (
+                            <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'3px'}}>
+                              {taskType&&<span style={{padding:'1px 6px',borderRadius:'4px',fontSize:'9px',
+                                fontWeight:'700',background:'#eff6ff',color:'#1d4ed8',textTransform:'uppercase'}}>
+                                {taskType}
+                              </span>}
+                              {asanaLink&&<a href={asanaLink} target="_blank" rel="noopener noreferrer"
+                                style={{fontSize:'10px',color:'#7c3aed',textDecoration:'none',fontWeight:'600'}}>
+                                🔗 Asana ticket
+                              </a>}
+                            </div>
+                          )
+                        })()}
+                      </div>
                       <span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'10px',fontWeight:'700',
                         background:statusBg,color:statusColor,fontFamily:'monospace',textTransform:'uppercase'}}>
                         {task.status.replace('_',' ')}
