@@ -16,6 +16,7 @@ const ROSTER = {
   s1: [
     {id:'kw', name:'Kyle Wong',       role:'LEAD', shift:1, pod:'P4'},
     {id:'ah', name:'Alan Ho',         role:'LEAD', shift:1, pod:'P4'},
+    {id:'ra', name:'Rob Avila',         role:'DC',   shift:1, pod:'P4'},
     {id:'mr', name:'Marcio Ramirez',  role:'DC',   shift:1, pod:'P1'},
     {id:'ta', name:'Togiva Ama',      role:'DC',   shift:1, pod:'P1'},
     {id:'lp', name:'LaQuon Parker',   role:'DC',   shift:1, pod:'P2'},
@@ -49,7 +50,11 @@ const ROSTER = {
     {id:'guest2',name:'Guest / Observer',   role:'GUEST',shift:2, pod:null},
   ]
 }
-const ALL_PEOPLE = [...ROSTER.s1, ...ROSTER.s2]
+const ALL_PEOPLE_RAW = [...ROSTER.s1, ...ROSTER.s2]
+// Lucca F (lf) leaves after May 15, 2026
+const ALL_PEOPLE = ALL_PEOPLE_RAW.filter(p=>
+  p.id !== 'lf' || new Date().toISOString().split('T')[0] <= '2026-05-15'
+)
 
 // ─── STATION INFO ─────────────────────────────────────────────────────────────
 const STATION_INFO: Record<string,any> = {
