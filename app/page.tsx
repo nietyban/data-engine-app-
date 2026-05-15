@@ -2550,9 +2550,19 @@ export default function Home() {
                     <span style={{fontSize:'12px',fontWeight:'700',fontFamily:'monospace',
                       color:'white',background:'#374151',padding:'3px 10px',borderRadius:'6px'}}>{pod}</span>
                     {members.map((m:any)=>(
-                      <span key={m.id} style={{padding:'3px 10px',borderRadius:'99px',
+                      <span key={m.id} style={{display:'inline-flex',alignItems:'center',gap:'4px',
+                        padding:'3px 10px',borderRadius:'99px',
                         fontSize:'12px',fontWeight:'600',background:'#dcfce7',color:'#16a34a',
-                        border:'1px solid #86efac'}}>{m.name}</span>
+                        border:'1px solid #86efac'}}>
+                        {m.name}
+                        {(isLead||isSuperAdmin(selectedUser))&&(
+                          <button onClick={e=>{e.stopPropagation();setShowManualAssign(m.id)}}
+                            style={{background:'none',border:'none',cursor:'pointer',
+                              fontSize:'10px',color:'#16a34a',padding:'0',marginLeft:'2px',
+                              fontWeight:'700',opacity:0.7}}
+                            title="Reassign">⇄</button>
+                        )}
+                      </span>
                     ))}
                     {absentHere.map((m:any)=>(
                       <span key={m.id} style={{padding:'3px 10px',borderRadius:'99px',
@@ -2598,12 +2608,14 @@ export default function Home() {
                       if (!info) return <div key={bi}/>
                       const bAlert = getBlockAlert(b.startMin,b.durHrs,null)
                       const isActive = !!bAlert
-                      const sessions = buildSessions(personA,personB,b.startMin,b.durHrs)
+                      const isStationDisabled = disabledStations.has(b.station)
+                      // Don't build sessions for disabled stations
+                      const sessions = isStationDisabled ? [] : buildSessions(personA,personB,b.startMin,b.durHrs)
                       const activeIdx = bAlert?.sessionIndex??-1
                       return (
                         <div key={bi} style={{
                           borderRight:bi<blocks.length-1||row.adhocMembers?.length>0?'1px solid #e5e7eb':'none',
-                          background:isActive?`${info.dot}08`:'white'}}>
+                          background:isActive&&!isStationDisabled?`${info.dot}08`:'white'}}>
                           {disabledStations.has(b.station) ? (
                             <div style={{padding:'12px 10px',background:'#f3f4f6',
                               borderBottom:'1px solid #e5e7eb',opacity:0.7}}>
